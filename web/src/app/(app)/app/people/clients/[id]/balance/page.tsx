@@ -19,7 +19,7 @@ const operationNames = {
   session_charge: "op.session",
   missed_charge: "op.missed",
   refund_to_balance: "op.return",
-  deleted_meeting_charge: "op.deleted_charge",
+  deleted_meeting_charge: "delete.kept_charge",
   correction: "op.correction",
 } as const satisfies Record<Schemas["BalanceOperationKind"], MessageKey>;
 

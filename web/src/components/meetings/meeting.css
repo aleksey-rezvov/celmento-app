@@ -1,0 +1,234 @@
+.meeting-screen {
+  display: grid;
+  min-width: 0;
+  gap: 1rem;
+  --meeting-field: #f1f1f2;
+  --meeting-line: #dedee3;
+  --meeting-danger: #a82b40;
+}
+
+.meeting-panel {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 1rem;
+  border-radius: 1.2rem;
+  background: var(--color-card);
+  overflow-wrap: anywhere;
+}
+
+.meeting-form-fields,
+.meeting-fields,
+.meeting-outcome-fields {
+  display: grid;
+  gap: 0.7rem;
+  min-width: 0;
+}
+
+.meeting-fields {
+  gap: 1px;
+  overflow: hidden;
+  border-radius: 0.83rem;
+  background: var(--meeting-line);
+}
+
+.meeting-field,
+.meeting-row-button {
+  display: grid;
+  min-width: 0;
+  gap: 0.42rem;
+  padding: 0.6rem 0.7rem;
+  border-radius: 0.7rem;
+  background: var(--meeting-field);
+  text-align: left;
+}
+
+.meeting-fields > .meeting-field {
+  border-radius: 0;
+}
+
+.meeting-field > span,
+.meeting-field > label,
+.meeting-row-button > span:first-child,
+.meeting-hint {
+  color: var(--color-secondary);
+  font-size: 0.84rem;
+}
+
+.meeting-row-button {
+  grid-template-columns: 1fr minmax(0, 2fr) auto;
+  align-items: center;
+}
+
+.meeting-field input,
+.meeting-field textarea,
+.meeting-picker input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--meeting-line, #dedee3);
+  border-radius: 0.4rem;
+  padding: 0.4rem 0.48rem;
+  background: var(--color-card);
+  font-size: 1rem;
+}
+
+.meeting-date-fields {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.meeting-picker {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.meeting-picker ul {
+  max-height: min(55dvh, 29rem);
+  overflow-y: auto;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.meeting-picker input {
+  background: var(--meeting-field, #f1f1f2);
+}
+
+.meeting-pick-row,
+.meeting-client {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 0.9rem;
+  background: var(--meeting-field, #f1f1f2);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.meeting-error {
+  color: var(--meeting-danger, #a82b40);
+  font-size: 0.88rem;
+}
+
+.meeting-detail {
+  border-top: 0.5rem solid var(--meeting-type-color, var(--color-accent));
+}
+
+.meeting-detail[data-type="client_session"] {
+  --meeting-type-color: var(--color-meeting-client-session);
+}
+.meeting-detail[data-type="personal_therapy"] {
+  --meeting-type-color: var(--color-meeting-personal-therapy);
+}
+.meeting-detail[data-type="supervision"] {
+  --meeting-type-color: var(--color-meeting-supervision);
+}
+.meeting-detail[data-type="mutual_practice"] {
+  --meeting-type-color: var(--color-meeting-mutual-practice);
+}
+.meeting-detail[data-type="training"] {
+  --meeting-type-color: var(--color-meeting-training);
+}
+.meeting-detail[data-archived="true"] {
+  --meeting-type-color: #d7d7da;
+}
+
+.meeting-detail[data-archived="true"] .meeting-client {
+  color: var(--color-secondary);
+  filter: grayscale(1);
+}
+
+.meeting-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.meeting-status-pill {
+  padding: 0.25rem 0.55rem;
+  border-radius: 8rem;
+  background: var(--meeting-field);
+  font-size: 0.84rem;
+  font-weight: 650;
+}
+
+.meeting-read-fields {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.meeting-read {
+  white-space: pre-wrap;
+}
+
+.meeting-join {
+  display: grid;
+  place-items: center;
+  text-decoration: none;
+}
+
+.meeting-secondary-actions,
+.meeting-contact-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.meeting-contact-actions .client-quick-action {
+  display: grid;
+  justify-items: center;
+  gap: 0.25rem;
+  min-width: 3.1rem;
+  font-size: 0.73rem;
+}
+
+.meeting-contact-actions .client-quick-icon {
+  display: grid;
+  place-items: center;
+  width: 2.6rem;
+  height: 2.6rem;
+  border: 1px solid var(--meeting-line);
+  border-radius: 50%;
+  background: var(--color-card);
+  color: var(--color-accent);
+  font-size: 1.25rem;
+}
+
+.meeting-modal-actions,
+.meeting-screen .profile-sheet-actions {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.meeting-screen .profile-sheet-actions button {
+  min-height: 2.55rem;
+  border-radius: 9rem;
+  font-weight: 650;
+}
+
+.meeting-screen .profile-sheet-actions .profile-primary {
+  background: var(--color-accent);
+  color: white;
+}
+
+.meeting-screen .profile-sheet-actions .profile-primary:disabled {
+  opacity: 0.55;
+}
+
+.meeting-screen .profile-sheet-actions .profile-secondary {
+  background: var(--meeting-field);
+}
+
+.meeting-success {
+  text-align: center;
+  padding-top: 2rem;
+}
+
+.meeting-success h1 {
+  font-family: var(--font-title);
+  font-size: 1.65rem;
+  color: var(--color-text);
+}
