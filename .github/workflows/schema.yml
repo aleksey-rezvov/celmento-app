@@ -1,0 +1,68 @@
+name: PostgreSQL schema
+
+on:
+  pull_request:
+    paths:
+      - "api/alembic/**"
+      - "api/scripts/schema-snapshot.sh"
+      - "api/src/celmento_api/**"
+      - "api/pyproject.toml"
+      - "api/uv.lock"
+      - "api/.python-version"
+      - "docker/**"
+      - "docker-compose.yml"
+      - ".env.example"
+      - ".github/workflows/schema.yml"
+  push:
+    branches: [dev]
+    paths:
+      - "api/alembic/**"
+      - "api/scripts/schema-snapshot.sh"
+      - "api/src/celmento_api/**"
+      - "api/pyproject.toml"
+      - "api/uv.lock"
+      - "api/.python-version"
+      - "docker/**"
+      - "docker-compose.yml"
+      - ".env.example"
+      - ".github/workflows/schema.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          version: "0.13.10"
+          enable-cache: false
+      - name: Configure the disposable database
+        run: |
+          umask 077
+          python3 - <<'PY'
+          from pathlib import Path
+          from secrets import token_hex
+
+          sample = Path(".env.example").read_text()
+          sample = sample.replace("<development-database-password>", token_hex(32))
+          sample = sample.replace("<development-session-secret>", token_hex(32))
+          Path(".env").write_text(sample)
+          PY
+          docker compose up -d --wait postgres
+      - name: Apply the Alembic history
+        working-directory: api
+        run: |
+          uv python install 3.15.2
+          uv sync --locked
+          uv run --locked alembic upgrade head
+      - name: Compare and restore the snapshot
+        run: |
+          api/scripts/schema-snapshot.sh check
+          api/scripts/schema-snapshot.sh restore celmento_app_test
+          api/scripts/schema-snapshot.sh check celmento_app_test

@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     registration_public_key_world: str
     email_api_key: SecretStr = SecretStr("")
     email_from: str
+    smtp_host: str = "127.0.0.1"
+    smtp_port: int = 1025
     media_dir: Path
 
     @field_validator("media_dir")

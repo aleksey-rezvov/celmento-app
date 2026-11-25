@@ -42,6 +42,13 @@ class HTTPValidationError(BaseModel):
     detail: list[ValidationErrorDetail]
 
 
+def error_responses(*statuses: int) -> dict[int | str, dict[str, object]]:
+    return {
+        status: {"model": HTTPValidationError if status == 422 else Error}
+        for status in statuses
+    }
+
+
 def _request_location(location: object) -> list[str | int]:
     # Validation locations below the request source can contain submitted map keys.
     if not isinstance(location, (list, tuple)) or not location:
@@ -69,6 +76,13 @@ def install_error_handlers(api: FastAPI) -> None:
         return JSONResponse(
             status_code=exc.status_code,
             content=body.model_dump(mode="json", exclude_none=True),
+        )
+
+    @api.exception_handler(Exception)
+    async def unexpected_error(_request: Request, _exc: Exception) -> JSONResponse:
+        body = Error(code=ErrorCode.INTERNAL_ERROR, message="Internal error")
+        return JSONResponse(
+            status_code=500, content=body.model_dump(mode="json", exclude_none=True)
         )
 
     @api.exception_handler(RequestValidationError)
