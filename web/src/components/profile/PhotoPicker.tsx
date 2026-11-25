@@ -16,6 +16,7 @@ export interface PendingPhoto {
 
 interface PhotoPickerProps {
   existing: string | null;
+  hasExisting?: boolean;
   pending: PendingPhoto | null | undefined;
   onChange?: (photo: PendingPhoto | null) => void;
   busy: boolean;
@@ -76,6 +77,7 @@ export async function saveProfilePhoto(photo: PendingPhoto | null): Promise<Sche
 
 export function PhotoPicker({
   existing,
+  hasExisting = existing !== null,
   pending,
   onChange,
   busy,
@@ -155,7 +157,7 @@ export function PhotoPicker({
               }}
             />
           </label>
-          {(source || existing) && (
+          {(source || hasExisting) && (
             <button
               type="button"
               className="profile-danger"
