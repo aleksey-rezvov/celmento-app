@@ -1,5 +1,3 @@
-from datetime import UTC, datetime
-
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,8 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from celmento_api.contour import current_contour
 from celmento_api.errors import AppError
 from celmento_api.models.account import Account
-from celmento_api.models.enums import AcceptanceKind, ErrorCode, RegistrationIntent
-from celmento_api.models.legal import Acceptance
+from celmento_api.models.enums import ErrorCode, RegistrationIntent
 from celmento_api.schemas.auth import (
     AccountRegistration,
     FinishOutcome,
@@ -17,8 +14,11 @@ from celmento_api.schemas.auth import (
     RegistrationFinish,
     RegistrationOrigin,
 )
+from celmento_api.services.activation import (
+    record_activation,
+    require_activation_consents,
+)
 from celmento_api.services.legal import (
-    ACTIVATION_CONSENTS,
     REGISTRATION_CONSENTS,
     record_acceptances,
     require_consents,
@@ -60,6 +60,7 @@ async def validate_registration(
 async def finish_registration(
     session: AsyncSession,
     body: RegistrationFinish,
+    origin: str,
 ) -> FinishRegistrationResult:
     claims = verify_package(
         body.registration_package.get_secret_value(),
@@ -77,14 +78,9 @@ async def finish_registration(
         REGISTRATION_CONSENTS,
         timestamp_required=local_registration,
     )
-    now = datetime.now(UTC)
     activation = body.activation
     if claims.intent == RegistrationIntent.LEAD:
-        if activation is None or not activation.age_confirmed:
-            raise AppError(400, ErrorCode.CONSENT_REQUIRED)
-        await require_consents(
-            session, activation.acceptances, ACTIVATION_CONSENTS, current_required=True
-        )
+        activation = await require_activation_consents(session, activation)
     elif activation is not None:
         raise AppError(400, ErrorCode.ACTIVATION_NOT_OFFERED)
     login = await require_available_login(session, body.login)
@@ -98,7 +94,6 @@ async def finish_registration(
             login=login,
             language=body.language.value,
             time_zone=body.time_zone,
-            activated_at=now if activation is not None else None,
         )
         .on_conflict_do_nothing()
         .returning(Account),
@@ -115,21 +110,11 @@ async def finish_registration(
         keep_client_time=local_registration,
     )
     if activation is not None:
-        record_acceptances(
-            session, activation.acceptances, account_id=account.account_id
-        )
-        # spec:impl legal-documents#store-account-activation-18-confirmation
-        session.add(
-            Acceptance(
-                account_id=account.account_id,
-                kind=AcceptanceKind.AGE_CONFIRMATION,
-                accepted_at=now,
-            ),
-        )
+        record_activation(session, account, activation)
     if local_registration:
         return FinishRegistrationResult(
             outcome=FinishOutcome.SESSION,
-            session=await issue_session(session, account),
+            session=await issue_session(session, account, origin),
             ticket=None,
         )
     return FinishRegistrationResult(

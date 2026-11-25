@@ -92,3 +92,17 @@ def test_api_enumerations_match_contract(openapi_contract: dict[str, object]) ->
 
     assert expected
     assert actual == expected
+
+
+def test_account_update_and_photo_use_named_request_bodies() -> None:
+    paths = _object(api.openapi()["paths"], "generated paths")
+    for path, method, media_type, name in (
+        ("/account", "patch", "application/json", "AccountUpdate"),
+        ("/account/photo", "put", "multipart/form-data", "ProfilePhotoUpload"),
+    ):
+        operation = _object(_object(paths[path], path)[method], method)
+        request = _object(operation["requestBody"], "requestBody")
+        content = _object(request["content"], "requestBody content")
+        schema = _object(_object(content[media_type], media_type)["schema"], "schema")
+        assert request["required"] is True
+        assert schema["$ref"] == f"#/components/schemas/{name}"

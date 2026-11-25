@@ -16,9 +16,9 @@ MAX_LOGIN_LENGTH: int = 32
 def login_rule(login: str) -> LoginAvailabilityStatus:
     if not MIN_LOGIN_LENGTH <= len(login) <= MAX_LOGIN_LENGTH:
         return LoginAvailabilityStatus.RULE_LENGTH
-    if not fullmatch(r"[a-z0-9_]+", login):
+    if not fullmatch(r"[A-Za-z0-9_]+", login):
         return LoginAvailabilityStatus.RULE_CHARS
-    if not fullmatch(r"[a-z]", login[0]):
+    if not fullmatch(r"[A-Za-z]", login[0]):
         return LoginAvailabilityStatus.RULE_START
     if login.endswith("_"):
         return LoginAvailabilityStatus.RULE_END
@@ -32,31 +32,41 @@ async def login_status(
     login: str,
     exclude_account_id: UUID | None = None,
 ) -> LoginAvailabilityStatus:
-    login = login.lower()
-    if await session.get(ReservedLoginWord, login) is not None:
-        return LoginAvailabilityStatus.RESERVED
+    normalized = login.lower()
+    if fullmatch(r"[A-Za-z0-9_]+", login):
+        if exclude_account_id is not None:
+            caller = await session.get(Account, exclude_account_id)
+            if caller is not None and caller.login == normalized:
+                return LoginAvailabilityStatus.AVAILABLE
+        if await session.get(ReservedLoginWord, normalized) is not None:
+            # spec:impl booking-link-login#show-login-forbidden-login-equals
+            return LoginAvailabilityStatus.RESERVED
     # spec:impl booking-link-login#accept-login-5-32-characters
     rule = login_rule(login)
     if rule != LoginAvailabilityStatus.AVAILABLE:
         return rule
     existing = await session.scalar(
-        select(Account.account_id).where(Account.login == login)
+        select(Account.account_id).where(Account.login == normalized)
     )
     if existing is not None and existing != exclude_account_id:
+        # spec:impl booking-link-login#check-availability-typed-accounts
         return LoginAvailabilityStatus.TAKEN
     return LoginAvailabilityStatus.AVAILABLE
 
 
-async def require_available_login(session: AsyncSession, login: str) -> str:
-    normalized = login.lower()
-    availability = await login_status(session, normalized)
+async def require_available_login(
+    session: AsyncSession, login: str, exclude_account_id: UUID | None = None
+) -> str:
+    availability = await login_status(session, login, exclude_account_id)
+    # spec:impl booking-link-login#save-login-violates-rule-taken
     if availability == LoginAvailabilityStatus.TAKEN:
         raise AppError(409, ErrorCode.LOGIN_TAKEN)
     if availability == LoginAvailabilityStatus.RESERVED:
         raise AppError(400, ErrorCode.LOGIN_RESERVED)
     if availability != LoginAvailabilityStatus.AVAILABLE:
         raise AppError(400, ErrorCode.LOGIN_INVALID, {"rule": availability.value})
-    return normalized
+    # spec:impl booking-link-login#treat-anna-rezvova-login-show-login
+    return login.lower()
 
 
 async def propose_login(session: AsyncSession, email: str) -> str:

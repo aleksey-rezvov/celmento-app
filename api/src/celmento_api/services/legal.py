@@ -105,8 +105,9 @@ def record_acceptances(
     account_id: UUID | None = None,
     meeting_id: UUID | None = None,
     keep_client_time: bool = False,
+    accepted_at: datetime | None = None,
 ) -> None:
-    now = datetime.now(UTC)
+    acceptance_time = accepted_at if accepted_at is not None else datetime.now(UTC)
     for item in items:
         session.add(
             Acceptance(
@@ -116,6 +117,6 @@ def record_acceptances(
                 version=item.version,
                 accepted_at=item.accepted_at
                 if keep_client_time and item.accepted_at is not None
-                else now,
+                else acceptance_time,
             ),
         )

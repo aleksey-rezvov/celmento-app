@@ -1500,12 +1500,20 @@ export interface components {
     Notice: {
       id: string;
       tab: components["schemas"]["NoticeTab"];
-      key: string;
+      key: components["schemas"]["NoticeKey"];
       params: {
         [key: string]: string;
       };
       created_at: string;
     };
+    NoticeKey:
+      | "notify.limit_new_client"
+      | "notify.archived_client_tried"
+      | "notify.invite_registered"
+      | "client.linked_notice"
+      | "notify.rescheduled"
+      | "notify.cancelled"
+      | "admin.access_granted";
     Slot: {
       starts_at: string;
       duration_minutes: components["schemas"]["DurationMinutes"];
@@ -4164,6 +4172,7 @@ export interface operations {
       };
       401: components["responses"]["Unauthorized"];
       404: components["responses"]["NotFound"];
+      422: components["responses"]["ValidationError"];
       500: components["responses"]["InternalError"];
     };
   };

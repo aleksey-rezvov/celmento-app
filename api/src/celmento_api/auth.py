@@ -34,8 +34,11 @@ async def current_account(
     return account
 
 
+SignedInAccount = Annotated[Account, Depends(current_account)]
+
+
 async def current_leader(
-    account: Annotated[Account, Depends(current_account)],
+    account: SignedInAccount,
 ) -> Account:
     if account.activated_at is None:
         raise AppError(403, ErrorCode.ACTIVATION_REQUIRED)

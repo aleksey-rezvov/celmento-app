@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Request, Response
 
 from celmento_api.auth import Database, current_session
 from celmento_api.errors import AppError, error_responses
@@ -41,6 +41,7 @@ from celmento_api.services.sign_in_codes import (
     normalize_email,
     send_code,
 )
+from celmento_api.storage import media_origin
 
 router: APIRouter = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -101,7 +102,7 @@ async def register(
     responses=error_responses(400, 422, 429, 500),
 )
 async def verify(
-    body: SignInCodeVerification, session: Database
+    request: Request, body: SignInCodeVerification, session: Database
 ) -> SignInCodeVerificationResult:
     email = normalize_email(body.email)
     with claim_code(email, body.code.get_secret_value()):
@@ -109,7 +110,7 @@ async def verify(
         if account is not None:
             result = SignInCodeVerificationResult(
                 outcome=VerificationOutcome.SIGNED_IN,
-                session=await issue_session(session, account),
+                session=await issue_session(session, account, media_origin(request)),
                 registration_package=None,
             )
             await session.commit()
@@ -164,9 +165,8 @@ async def check_login(
         body.device_proof,
         DeviceProofPurpose.LOGIN_AVAILABILITY,
     )
-    normalized = body.login.lower()
     return LoginAvailability(
-        login=normalized, status=await login_status(session, normalized)
+        login=body.login.lower(), status=await login_status(session, body.login)
     )
 
 
@@ -179,9 +179,9 @@ async def check_login(
     responses=error_responses(400, 409, 422, 500),
 )
 async def finish(
-    body: RegistrationFinish, session: Database
+    request: Request, body: RegistrationFinish, session: Database
 ) -> FinishRegistrationResult:
-    result = await finish_registration(session, body)
+    result = await finish_registration(session, body, media_origin(request))
     await session.commit()
     return result
 
@@ -193,8 +193,12 @@ async def finish(
     response_model=SignInSession,
     responses=error_responses(400, 422, 500),
 )
-async def exchange(body: SignInTicketExchange, session: Database) -> SignInSession:
-    signed_in = await exchange_ticket(session, body.ticket.get_secret_value())
+async def exchange(
+    request: Request, body: SignInTicketExchange, session: Database
+) -> SignInSession:
+    signed_in = await exchange_ticket(
+        session, body.ticket.get_secret_value(), media_origin(request)
+    )
     await session.commit()
     return signed_in
 
@@ -212,6 +216,7 @@ async def sign_out(
     record: Annotated[AccountSession, Depends(current_session)],
     session: Database,
 ) -> Response:
+    # spec:impl account-profile#delete-change-server-data-sign-out
     record.revoked_at = datetime.now(UTC)
     await session.commit()
     return Response(status_code=204)

@@ -30,6 +30,8 @@ from celmento_api.errors import AppError, Error
 from celmento_api.main import api, app
 from celmento_api.models.account import Account, AccountSession, SignInTicket
 from celmento_api.models.enums import Contour, ErrorCode, Language, LegalDocumentKind
+from celmento_api.models.feedback import FeedbackMessage
+from celmento_api.models.leader import LeaderProfile, WorkingDay
 from celmento_api.models.legal import Acceptance, LegalDocumentVersion
 from celmento_api.routers import auth as auth_router
 from celmento_api.schemas.auth import (
@@ -410,6 +412,14 @@ async def test_registration_writes_nothing_until_confirmed_finish(
     assert account.contour == Contour.WORLD
     assert account.id.version == 7
     assert account.activated and account.leader is not None
+    assert account.leader.contact_email == account.email
+    assert account.leader.session_duration_minutes == 60
+    assert account.leader.session_format == "online"
+    assert account.leader.default_currency == "RUB"
+    assert account.leader.default_rate is None
+    assert [day.working for day in account.leader.working_hours] == [True] * 5 + [
+        False
+    ] * 2
     assert {entry.kind.value for entry in account.acceptances} == {
         "terms_of_use",
         "personal_data_consent",
@@ -426,12 +436,63 @@ async def test_registration_writes_nothing_until_confirmed_finish(
         "terms_of_use"
     ] == package.claims.consents[0].accepted_at
     assert await auth_stand.counts() == (1, 5, 1, 0)
+    async with auth_stand.session() as session:
+        profile = await session.get(LeaderProfile, account.id)
+        assert profile is not None and profile.contact_email == account.email
+        assert (
+            profile.session_duration_minutes,
+            profile.session_format,
+            profile.default_currency,
+        ) == (None, None, None)
+        assert await session.scalar(select(func.count()).select_from(WorkingDay)) == 0
 
     replay = await auth_stand.post(
         "registration/finish", {**finish, "login": "another"}
     )
     assert_error(replay, 409, ErrorCode.ACCOUNT_EXISTS)
     assert await auth_stand.counts() == (1, 5, 1, 0)
+
+
+# spec:test product-feedback#store-message-account-contour-readable
+async def test_feedback_is_stored_only_in_the_senders_contour(
+    auth_stand: AuthStand,
+) -> None:
+    email = "feedback-local@example.com"
+    auth_stand.switch(Contour.WORLD)
+    await auth_stand.add_account(email, "feedback_here")
+    requested = await auth_stand.post(
+        "code/request", {"email": email, "language": "en"}
+    )
+    assert requested.status_code == 200
+    response = await auth_stand.post(
+        "code/verify", {"email": email, "code": auth_stand.code()}
+    )
+    assert response.status_code == 200
+    signed_in = SignInCodeVerificationResult.model_validate_json(
+        response.content
+    ).session
+    assert signed_in is not None
+    headers = {"Authorization": f"Bearer {signed_in.token}"}
+    body = {"text": "A local suggestion", "screen": "profile"}
+    saved = await auth_stand.client.post("/api/v1/feedback", json=body, headers=headers)
+    assert saved.status_code == 204
+
+    auth_stand.switch(Contour.RU)
+    await auth_stand.add_account(email, "feedback_here")
+    assert_error(
+        await auth_stand.client.post("/api/v1/feedback", json=body, headers=headers),
+        401,
+        ErrorCode.UNAUTHORIZED,
+    )
+    async with auth_stand.session() as session:
+        assert (
+            await session.scalar(select(func.count()).select_from(FeedbackMessage)) == 0
+        )
+
+    auth_stand.switch(Contour.WORLD)
+    async with auth_stand.session() as session:
+        messages = (await session.scalars(select(FeedbackMessage))).all()
+    assert len(messages) == 1 and messages[0].account_id == signed_in.account.id
 
 
 # spec:test email-code-sign-in#normalize-email

@@ -2,14 +2,12 @@ from enum import StrEnum
 from re import fullmatch
 from typing import Annotated
 from uuid import UUID
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import (
     AwareDatetime,
     BaseModel,
     Field,
     SecretStr,
-    StringConstraints,
     field_validator,
 )
 
@@ -19,17 +17,12 @@ from celmento_api.models.enums import (
     LoginAvailabilityStatus,
     RegistrationIntent,
 )
-from celmento_api.schemas.account import Account, Email
+from celmento_api.schemas.account import Account, Email, Name, TimeZone
 from celmento_api.schemas.documents import ConsentAcceptance
 
 EmailInput = Annotated[
     str,
     Field(repr=False, json_schema_extra={"format": "email", "maxLength": 254}),
-]
-Name = Annotated[
-    str,
-    StringConstraints(strip_whitespace=True, min_length=1, max_length=100),
-    Field(repr=False),
 ]
 Token = Annotated[
     str,
@@ -88,8 +81,8 @@ class RegistrationOrigin(BaseModel):
 
 class AccountRegistration(BaseModel):
     email: EmailInput
-    first_name: Name
-    last_name: Name
+    first_name: Name = Field(repr=False)
+    last_name: Name = Field(repr=False)
     language: Language
     consents: Annotated[
         list[ConsentAcceptance], Field(json_schema_extra={"minItems": 2})
@@ -134,8 +127,8 @@ class SignInSession(BaseModel):
 
 class RegistrationPackageClaims(BaseModel):
     email: Email = Field(repr=False)
-    first_name: Name
-    last_name: Name
+    first_name: Name = Field(repr=False)
+    last_name: Name = Field(repr=False)
     consents: list[ConsentAcceptance]
     intent: RegistrationIntent | None
     origin: RegistrationOrigin | None
@@ -183,19 +176,10 @@ class AccountActivation(BaseModel):
 class RegistrationFinish(RegistrationPackageRef):
     login: str
     language: Language
-    time_zone: str
+    time_zone: TimeZone
     consents: list[ConsentAcceptance] | None = None
     activation: AccountActivation | None = None
     notify_specialist: bool = False
-
-    @field_validator("time_zone")
-    @classmethod
-    def validate_time_zone(cls, value: str) -> str:
-        try:
-            ZoneInfo(value)
-        except (ValueError, ZoneInfoNotFoundError) as exc:
-            raise ValueError("Expected an IANA time zone") from exc
-        return value
 
 
 class SignInTicket(BaseModel):
