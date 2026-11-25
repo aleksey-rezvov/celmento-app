@@ -3,10 +3,9 @@
 import type { ReactElement } from "react";
 import { ContactButtons } from "@/components/ContactButtons";
 import { useAppNavigation } from "@/components/shell/navigation";
-import { useAccount } from "@/lib/account";
 import type { Schemas } from "@/lib/api/client";
-import { formatDate } from "@/lib/format";
-import { useLanguage, useTranslation } from "@/lib/i18n";
+import { useTranslation } from "@/lib/i18n";
+import { newSourceNotePath } from "@/lib/note-route";
 import { availableContacts } from "./ContactsBlock";
 
 interface QuickActionsProps {
@@ -14,12 +13,9 @@ interface QuickActionsProps {
 }
 
 export function QuickActions({ card }: QuickActionsProps): ReactElement {
-  const { account } = useAccount();
   const navigate = useAppNavigation();
   const t = useTranslation();
-  const language = useLanguage();
   const active = card.status === "active";
-  const noteDate = formatDate(new Date().toISOString(), account.time_zone, language);
 
   return (
     <div className="client-quick-wrap">
@@ -42,11 +38,7 @@ export function QuickActions({ card }: QuickActionsProps): ReactElement {
           <button
             className="client-quick-action"
             type="button"
-            onClick={() =>
-              navigate(
-                "/app/notes/new?first_line=" + encodeURIComponent(card.name + ", " + noteDate),
-              )
-            }
+            onClick={() => navigate(newSourceNotePath("client_id", card.id))}
           >
             <span className="client-quick-icon" aria-hidden="true">
               ✎

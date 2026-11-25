@@ -477,6 +477,8 @@ test("loads the authorized client name on the restore limit screen and returns t
     if (url.pathname === "/api/v1/account") return json(signedIn);
     if (url.pathname === "/api/v1/notices") return json({ items: [] });
     if (url.pathname === cardApiPath + "/meetings") return json({ upcoming: [], past: [] });
+    if (url.pathname === cardApiPath + "/notes")
+      return json({ items: [] } satisfies Schemas["ClientNoteList"]);
     if (request.method === "POST" && url.pathname === cardApiPath + "/restore")
       return json({ code: "client_limit_reached" }, 409);
     if (request.method === "GET" && url.pathname === cardApiPath) {

@@ -12,6 +12,7 @@ from celmento_api.db import engine, session_factory
 from celmento_api.models.account import ReservedLoginWord
 from celmento_api.models.enums import Contour, Language, LegalDocumentKind
 from celmento_api.models.legal import LegalDocumentVersion
+from celmento_api.services.preseeded_notes import seed_preseeded_notes
 
 DOCUMENTS: Path = Path(__file__).resolve().parent / "content" / "legal"
 BUILTIN_RESERVED_WORDS: tuple[str, ...] = (
@@ -94,6 +95,7 @@ async def seed(session: AsyncSession, *, draft_documents: bool = False) -> None:
                 text_en=en.text,
             )
             await session.execute(document.on_conflict_do_nothing())
+    await seed_preseeded_notes(session)
     await session.commit()
 
 

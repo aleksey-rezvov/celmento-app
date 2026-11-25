@@ -21,12 +21,18 @@ export function formatTime(instant: string, timeZone: string, language: Language
   }).format(new Date(instant));
 }
 
-export function formatDate(instant: string, timeZone: string, language: Language): string {
+export function formatDate(
+  instant: string,
+  timeZone: string,
+  language: Language,
+  options?: { year?: "numeric" },
+): string {
   // spec:impl interface-language#locale-formats
   return new Intl.DateTimeFormat(locales[language], {
     timeZone,
     day: "numeric",
     month: "long",
+    year: options?.year,
   }).format(new Date(instant));
 }
 

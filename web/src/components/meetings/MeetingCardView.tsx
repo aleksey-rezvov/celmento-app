@@ -13,10 +13,10 @@ import { formatDate, formatMoney, formatTime, otherPartyHint } from "@/lib/forma
 import { useLanguage, useTranslation, type MessageKey } from "@/lib/i18n";
 import {
   isArchivedClientMeeting,
-  meetingPerson,
   meetingStatusLabels,
   meetingTypeLabels,
 } from "@/lib/meeting-display";
+import { newSourceNotePath } from "@/lib/note-route";
 import { copyText } from "@/lib/share";
 import { MeetingChangeSheet } from "./MeetingChangeSheet";
 import { MeetingScreen, meetingPath, meetingsPath } from "./MeetingScreen";
@@ -79,7 +79,6 @@ export function MeetingCardView({ meeting }: MeetingCardViewProps): ReactElement
   const link = usableLink(meeting.meeting_link);
   const date = formatDate(meeting.starts_at, timeZone, language);
   const time = formatTime(meeting.starts_at, timeZone, language);
-  const person = meetingPerson(meeting, t);
   // spec:impl time-zone-handling#show-leader-attendee-local-time
   const clientTime = clientRef?.linked
     ? otherPartyHint(
@@ -120,11 +119,7 @@ export function MeetingCardView({ meeting }: MeetingCardViewProps): ReactElement
   }
 
   function writeNote(): void {
-    const text = t("from_meeting.first_line", {
-      [language === "ru" ? "имя" : "name"]: person,
-      [language === "ru" ? "дата" : "date"]: date,
-    });
-    navigate("/app/notes/new?first_line=" + encodeURIComponent(text));
+    navigate(newSourceNotePath("meeting_id", meeting.id));
   }
 
   return (

@@ -1,0 +1,108 @@
+language: en
+folders:
+  - key: practice
+    name: Practice
+    color: blue
+  - key: development
+    name: Development
+    color: green
+  - key: resource
+    name: Resource
+    color: peach
+notes:
+  - folder: null
+    title: How to use notes
+    # spec:impl preseeded-notes#write-how-use-notes-5-7-short
+    text: |
+      Notes are the place for everything in text: session records, homework, lists, ideas. Only you can see a note until you tag someone in it.
+
+      1. **Folders.** In the tab's “…” menu choose “New folder”; in a note's menu choose “Move to folder”. Deleting a folder keeps its notes in “All”.
+      2. **Checklists.** Turn on a checklist from the bar above the keyboard — for homework, for example. Tapping an item marks it done.
+      3. **Tag a client.** Tap “Tag” and pick a client: they will see the note on their side, and only you can edit it. To close access, tap the avatar and choose “Remove access”.
+      4. **Reply to a note.** A client answers with a note of their own via “Reply”. The reply shows up for you with the “Shared” label and in the client's card.
+      5. **Send as text.** If the client isn't on celmēnto yet, send the note to a messenger: note menu → “Send as text”. Checklist items go as ☐ and ☑ lines.
+      6. **These notes are examples.** Edit, move and delete them like your own.
+  - folder: practice
+    title: Session record
+    # spec:impl preseeded-notes#structure-session-protocol-sections
+    text: |
+      Client, date:
+
+      ## Client's request
+
+      ## Key moments
+
+      ## Insights
+
+      ## Agreements
+
+      ## Homework
+
+      ## My observations
+
+      Only you can see this note. Homework is easier to keep as a separate note with the client tagged in it — then “My observations” stay with you.
+  - folder: practice
+    title: Ethics codes
+    # spec:impl preseeded-notes#write-ethical-codes-links-icf
+    text: |
+      Links only: the codes belong to the associations and are kept up to date on their sites.
+
+      - [ICF — Code of Ethics](https://coachingfederation.org/ethics/code-of-ethics) — International Coaching Federation; the reference for ICF members and ICF-credentialed coaches.
+      - [FPCM — Code of Ethics](https://procoach.ru/docs/) — Federation of Professional Coaches and Mentors (Russia, in Russian); the code is in the “Documents” section.
+      - [RPS — Code of Ethics of the Psychologist](https://psyrus.ru/rpo/documentation/ethics.php) — Russian Psychological Society (in Russian); adopted by its 5th congress in 2012.
+      - [EMCC — Global Code of Ethics](https://www.globalcodeofethics.org/) — one code for coaches, mentors and supervisors; adopted by EMCC Global (https://www.emccglobal.org/) and eleven other associations.
+      - [Association for Coaching](https://www.associationforcoaching.com/) — UK-based coaching association; follows the same Global Code of Ethics, see the Code of Ethics section on its site.
+      - [ECF — Coach's Code](https://eurocoach.eu/about-us/kodeks/) — European Coach Federation (site in Russian); the commitments its certified coaches sign up to.
+
+      The links lead to the organizations' own sites; celmēnto is not affiliated with them.
+  - folder: development
+    title: Books and films
+    # spec:impl preseeded-notes#make-books-films-checklist-7-titles
+    text: |
+      Read and watched — tick them off. Add your own finds to the list.
+
+      - [x] John Whitmore, “Coaching for Performance”
+      - [x] Irvin D. Yalom, “The Gift of Therapy”
+      - [ ] Nancy McWilliams, “Psychoanalytic Diagnosis”
+      - [ ] Carl R. Rogers, “On Becoming a Person”
+      - [ ] Viktor E. Frankl, “Man's Search for Meaning”
+      - [ ] Film: “Good Will Hunting”
+      - [ ] Film: “The King's Speech”
+  - folder: development
+    title: Libraries
+    # spec:impl preseeded-notes#list-libraries-digital-libraries
+    text: |
+      Where to find texts to read. Most of these libraries are in Russian and need a sign-in: your own account or access through a university.
+
+      - [eLibrary](https://www.elibrary.ru/defaultx.asp) — scientific articles and journals on psychology, search by author and keyword, the Russian Science Citation Index.
+      - [Koob](https://www.koob.ru/) — free e-books: psychology, coaching, self-development; a handy place to look for the classics.
+      - [Urait](https://urait.ru/) — university textbooks and courses: counselling, psychodiagnostics, coaching.
+      - [IPR SMART (IPR Books)](https://www.iprbookshop.ru/) — a university e-library: textbooks, monographs and articles on psychology.
+      - [Biblioclub](https://biblioclub.ru/) — “University Library Online”: monographs, textbooks and classic texts of psychology.
+  - folder: development
+    title: Communities and associations
+    text: |
+      Where to find colleagues, supervision and certification. Requirements are as of September 2026; check the sites for the current terms.
+
+      - [ICF](https://coachingfederation.org/) — International Coaching Federation, for coaches worldwide. Membership: an ICF credential or at least 60 hours of coaching education that meets ICF standards (enrolment counts), annual fee. Credentials: ACC — 60 hours of education and 100 hours of coaching (75 paid, 8 clients); PCC — 125 and 500 hours (450 paid, 25 clients); MCC — 200 and 2,500 hours (2,250 paid, 35 clients). Every level: 10 hours of mentor coaching over at least 3 months and an exam.
+      - [FPCM](https://procoach.ru/) — Federation of Professional Coaches and Mentors (Russia, in Russian), for coaches, mentors and those still in training. Membership: an application and an annual fee, no practice hours required. Certification: Coach Practitioner — 60+ hours of education and 100+ hours of practice (80 paid); Coach Expert — 125+ and 500+ hours (450 paid); Coach Master — 250+ and 2,500+ hours (2,300 paid). Every level: 10 hours of mentoring and 5 hours of supervision; renewal takes 3 hours of mentoring and 3 hours of supervision a year.
+      - [RPS](https://psyrus.ru/) — Russian Psychological Society (in Russian), for psychologists. Joining goes through a regional branch: an application, a form, two recommendations from current members, a membership fee; no practice or supervision hours required.
+      - [b17 forum](https://www.b17.ru/) — the largest Russian-language community of psychologists and a platform for clients: articles, a forum, questions to psychologists. To be listed as a specialist you confirm your psychology education with diploma scans [verify].
+  - folder: resource
+    title: Affirmations
+    # spec:impl preseeded-notes#include-10-15-affirmations-original
+    text: |
+      Pick the one that speaks to you today.
+
+      - I know how to listen — and that is already help.
+      - I don't need to have every answer: a good question goes further than ready advice.
+      - I'm responsible for the process; the choice belongs to the person in front of me.
+      - Tiredness is a signal to care for myself, not a sign of weakness.
+      - Every session starts from a clean page: the last one stays in its own time.
+      - I can make mistakes and still be a good specialist.
+      - A pause in the conversation is work too.
+      - I keep my boundaries so that I have enough strength for those who need it.
+      - Today I do as much as I can, and that is enough.
+      - A client's trust is a gift I handle with care.
+      - My practice grows along with me: not fast, but honestly.
+      - I'm allowed to ask for support too: supervision and rest are part of the profession.

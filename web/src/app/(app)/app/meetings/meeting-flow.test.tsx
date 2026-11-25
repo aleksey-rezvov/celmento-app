@@ -230,6 +230,7 @@ function setup(
       }
       if (path.endsWith("/meetings") && path.startsWith("/clients/"))
         return json({ upcoming: [], past: [] });
+      if (path.endsWith("/notes") && path.startsWith("/clients/")) return json({ items: [] });
       const card = cards.find(({ id }) => path === "/clients/" + id);
       if (card) return json(card);
       throw new Error("Unexpected request: " + request.method + " " + path);

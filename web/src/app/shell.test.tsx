@@ -119,6 +119,10 @@ function signIn(account: Account, notices: Notice[] = []): Request[] {
         return json(account);
       case "/api/v1/notices":
         return json({ items: notices } satisfies Schemas["NoticeList"]);
+      case "/api/v1/folders":
+        return json({ items: [] } satisfies Schemas["FolderList"]);
+      case "/api/v1/notes":
+        return json({ items: [], total: 0 } satisfies Schemas["NoteList"]);
       case "/api/v1/meetings":
         return json({
           items: [],
@@ -285,10 +289,9 @@ test.each([false, true])(
     const view = render(atPath("/app/notes", <Notes />));
     const menu = await screen.findByRole("navigation");
     const menuContent = within(menu);
-    expect(menuContent.getByRole("button", { name: t("extra.note_create") })).toHaveProperty(
-      "disabled",
-      true,
-    );
+    expect(
+      menuContent.getByRole("link", { name: t("extra.note_create") }).getAttribute("href"),
+    ).toBe("/app/notes/new");
 
     view.rerender(atPath("/app/meetings", <Meetings />));
     const createMeeting = menuContent.queryByRole("link", { name: t("meetings.empty_day_cta") });

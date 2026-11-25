@@ -1968,6 +1968,8 @@ export interface components {
       text: string;
     };
     NoteChecklistTicks: {
+      expected_updated_at: string;
+      expected_checked_items: number[];
       checked_items: number[];
     };
     NoteTaggablePerson: {
@@ -3953,7 +3955,9 @@ export interface operations {
   createNote: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+      };
       path?: never;
       cookie?: never;
     };
@@ -3973,6 +3977,7 @@ export interface operations {
       };
       401: components["responses"]["Unauthorized"];
       404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
       422: components["responses"]["ValidationError"];
       500: components["responses"]["InternalError"];
     };
@@ -4104,6 +4109,7 @@ export interface operations {
       401: components["responses"]["Unauthorized"];
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
       422: components["responses"]["ValidationError"];
       500: components["responses"]["InternalError"];
     };
@@ -4111,7 +4117,9 @@ export interface operations {
   replyToNote: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+      };
       path: {
         note_id: string;
       };

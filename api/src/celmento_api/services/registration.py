@@ -111,7 +111,7 @@ async def finish_registration(
         keep_client_time=local_registration,
     )
     if activation is not None:
-        record_activation(session, account, activation)
+        await record_activation(session, account, activation)
     await auto_link_for_account(session, account)
     if local_registration:
         return FinishRegistrationResult(

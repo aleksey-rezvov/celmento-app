@@ -14,6 +14,7 @@ from celmento_api.services.legal import (
     record_acceptances,
     require_consents,
 )
+from celmento_api.services.preseeded_notes import create_for
 
 
 async def require_activation_consents(
@@ -27,7 +28,7 @@ async def require_activation_consents(
     return body
 
 
-def record_activation(
+async def record_activation(
     session: AsyncSession, account: Account, confirmed: AccountActivation
 ) -> None:
     now = datetime.now(UTC)
@@ -46,9 +47,11 @@ def record_activation(
     )
     # spec:impl account-profile#show-contacts-fields-phone-telegram
     # spec:impl default-rate-currency#leave-price-empty-new-leader
-    session.add(
-        LeaderProfile(account_id=account.account_id, contact_email=account.email)
-    )
+    profile = LeaderProfile(account_id=account.account_id, contact_email=account.email)
+    session.add(profile)
+    # spec:impl client-leading-activation#create-preseeded-notes-moment-activation
+    # spec:impl preseeded-notes#create-preseeded-set-moment-activation
+    await create_for(session, account, profile)
 
 
 async def activate(
@@ -59,5 +62,5 @@ async def activate(
         # spec:impl client-leading-activation#offer-control-request-turns-activation
         raise AppError(409, ErrorCode.ALREADY_ACTIVATED)
     confirmed = await require_activation_consents(session, body)
-    record_activation(session, account, confirmed)
+    await record_activation(session, account, confirmed)
     return account
