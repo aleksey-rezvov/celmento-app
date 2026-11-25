@@ -58,6 +58,7 @@ from celmento_api.schemas.auth import (
     VerificationOutcome,
 )
 from celmento_api.schemas.documents import LegalDocument
+from celmento_api.schemas.notes import FolderList, NoteList
 from celmento_api.seed import seed
 from celmento_api.services import sign_in_codes
 from celmento_api.services.sessions import issue_ticket
@@ -475,6 +476,7 @@ async def test_serves_a_read_only_bilingual_document_set_in_each_contour(
 # spec:test registration-finish-screen#create-in-selected-contour
 # spec:test legal-documents#require-recorded-account-consent
 # spec:test legal-documents#store-account-activation-18-confirmation
+# spec:test preseeded-notes#create-preseeded-set-moment-activation
 async def test_registration_writes_nothing_until_confirmed_finish(
     auth_stand: AuthStand,
 ) -> None:
@@ -563,9 +565,21 @@ async def test_registration_writes_nothing_until_confirmed_finish(
         "terms_of_use"
     ] == package.claims.consents[0].accepted_at
     assert await auth_stand.counts() == (1, 5, 1, 0)
+    headers = {"Authorization": f"Bearer {result.session.token}"}
+    notes = await auth_stand.client.get("/api/v1/notes", headers=headers)
+    folders = await auth_stand.client.get("/api/v1/folders", headers=headers)
+    assert notes.status_code == folders.status_code == 200
+    note_set = NoteList.model_validate_json(notes.content)
+    assert note_set.total == 7 and [note.title for note in note_set.items] == [
+        "How to use notes"
+    ]
+    assert [
+        folder.name for folder in FolderList.model_validate_json(folders.content).items
+    ] == ["Practice", "Development", "Resource"]
     async with auth_stand.session() as session:
         profile = await session.get(LeaderProfile, account.id)
         assert profile is not None and profile.contact_email == account.email
+        assert profile.preseeded_notes_version == 1
         assert (
             profile.session_duration_minutes,
             profile.session_format,

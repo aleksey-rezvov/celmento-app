@@ -23,6 +23,7 @@ from celmento_api.schemas.meetings import (
     ClientArchivePreview,
     ClientMeetingList,
 )
+from celmento_api.schemas.notes import ClientNoteList
 from celmento_api.services.account_access import lock_account
 from celmento_api.services.archive import (
     archive_client_card,
@@ -44,6 +45,7 @@ from celmento_api.services.clients import (
 )
 from celmento_api.services.links import link_by_login, unlink
 from celmento_api.services.meeting_views import list_client_meetings
+from celmento_api.services.note_access import notes_for_client
 from celmento_api.storage import (
     PHOTO_CONTENT_TYPES,
     client_photo_directory,
@@ -341,3 +343,21 @@ async def client_meetings(
     return await list_client_meetings(
         session, leader, card, media_origin(request), datetime.now(UTC), limit
     )
+
+
+@router.get(
+    "/{client_id}/notes",
+    operation_id="listClientCardNotes",
+    summary="List the latest notes involving a client",
+    response_model=ClientNoteList,
+    responses=error_responses(401, 403, 404, 422, 500),
+)
+async def client_notes(
+    request: Request,
+    client_id: UUID,
+    leader: LeaderAccount,
+    session: Database,
+    limit: Annotated[int, Query(ge=1, le=20)] = 3,
+) -> ClientNoteList:
+    card = await owned_client(session, leader.account_id, client_id)
+    return await notes_for_client(session, leader, card, media_origin(request), limit)

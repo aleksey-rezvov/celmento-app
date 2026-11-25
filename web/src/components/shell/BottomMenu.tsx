@@ -7,6 +7,7 @@ import { useAccount } from "@/lib/account";
 import { formatDate } from "@/lib/format";
 import { useTranslation, type MessageKey } from "@/lib/i18n";
 import { newClientHref, newClientPath } from "@/lib/limit";
+import { folderIdFromPath, newNoteHref } from "@/lib/notes-navigation";
 import { meetingCreationHref, useCurrentInstant, useMeetingCreationDay } from "@/lib/schedule-view";
 import { zonedDay } from "@/lib/zoned-date";
 import { FloatingAction } from "./FloatingAction";
@@ -29,7 +30,7 @@ const tabs: readonly Tab[] = [
   {
     id: "notes",
     label: "notes.title",
-    create: { href: "/app/notes/new", label: "extra.note_create" },
+    create: { href: newNoteHref(), label: "extra.note_create" },
   },
   {
     id: "people",
@@ -63,6 +64,7 @@ export function BottomMenu({ activated }: BottomMenuProps): ReactElement {
   const t = useTranslation();
   const now = useCurrentInstant();
   const creationDay = useMeetingCreationDay() ?? zonedDay(now, account.time_zone);
+  const folderId = folderIdFromPath(pathname);
 
   // spec:impl mobile-app-shell#label-meetings-tab-bottom-menu
   // spec:impl schedule-date-navigation#label-meetings-tab-bottom-menu
@@ -84,7 +86,13 @@ export function BottomMenu({ activated }: BottomMenuProps): ReactElement {
           const label = tab.id === "meetings" ? today : t(tab.label);
           // spec:impl mobile-app-shell#show-notes-account-meetings-people
           // spec:impl mobile-app-shell#show-records-profile-tabs-no-create
-          const action = root && (activated || tab.id === "notes") ? tab.create : undefined;
+          // spec:impl notes-grid-folders#open-screen-7-4-folder-tile
+          const action =
+            tab.id === "notes" && folderId && tab.create
+              ? { ...tab.create, href: newNoteHref(folderId) }
+              : root && (activated || tab.id === "notes")
+                ? tab.create
+                : undefined;
 
           return (
             <li key={tab.id} className="shell-tab-slot">
@@ -95,7 +103,11 @@ export function BottomMenu({ activated }: BottomMenuProps): ReactElement {
                 aria-label={tab.id === "meetings" ? `${t(tab.label)}, ${today}` : undefined}
                 onNavigate={(event) => {
                   event.preventDefault();
-                  if (!root) {
+                  if (
+                    !root ||
+                    (tab.id === "notes" &&
+                      new URLSearchParams(window.location.search).has("client_id"))
+                  ) {
                     navigate(href);
                   }
                 }}
@@ -126,7 +138,6 @@ export function BottomMenu({ activated }: BottomMenuProps): ReactElement {
                         : action.href
                   }
                   labelKey={action.label}
-                  disabled={tab.id === "notes"}
                 />
               )}
             </li>

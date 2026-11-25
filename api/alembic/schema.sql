@@ -1,4 +1,4 @@
--- Alembic revision: 0004
+-- Alembic revision: 0005
 --
 -- PostgreSQL database dump
 --
@@ -185,6 +185,21 @@ CREATE TABLE public.feedback_message (
 
 
 --
+-- Name: folder; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.folder (
+    folder_id uuid DEFAULT uuidv7() NOT NULL,
+    owner_account_id uuid NOT NULL,
+    name text NOT NULL,
+    color text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT folder_color_known CHECK ((color = ANY (ARRAY['pink'::text, 'blue'::text, 'lilac'::text, 'yellow'::text, 'green'::text, 'peach'::text]))),
+    CONSTRAINT folder_name_valid CHECK (((length(name) <= 50) AND (length(btrim(name)) > 0)))
+);
+
+
+--
 -- Name: leader_profile; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -309,6 +324,69 @@ CREATE TABLE public.meeting_expense_correction (
 
 
 --
+-- Name: note; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.note (
+    note_id uuid DEFAULT uuidv7() NOT NULL,
+    author_account_id uuid NOT NULL,
+    title text DEFAULT ''::text NOT NULL,
+    text text DEFAULT ''::text NOT NULL,
+    folder_id uuid,
+    reply_to_note_id uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT note_reply_to_other CHECK ((reply_to_note_id <> note_id)),
+    CONSTRAINT note_text_length CHECK ((length(text) <= 20000)),
+    CONSTRAINT note_title_length CHECK ((length(title) <= 200))
+);
+
+
+--
+-- Name: note_checklist_tick; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.note_checklist_tick (
+    note_id uuid NOT NULL,
+    account_id uuid NOT NULL,
+    checked_items integer[] NOT NULL,
+    CONSTRAINT note_checklist_tick_positions_valid CHECK (((0 <= ALL (checked_items)) AND (array_position(checked_items, NULL::integer) IS NULL)))
+);
+
+
+--
+-- Name: note_request_receipt; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.note_request_receipt (
+    note_request_receipt_id uuid DEFAULT uuidv7() NOT NULL,
+    account_id uuid NOT NULL,
+    operation text NOT NULL,
+    idempotency_key uuid NOT NULL,
+    request_digest text NOT NULL,
+    note_id uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT note_request_receipt_digest_valid CHECK ((request_digest ~ '^[0-9a-f]{64}$'::text)),
+    CONSTRAINT note_request_receipt_operation_known CHECK ((operation = ANY (ARRAY['create_note'::text, 'reply_to_note'::text])))
+);
+
+
+--
+-- Name: note_tag; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.note_tag (
+    note_tag_id uuid DEFAULT uuidv7() NOT NULL,
+    note_id uuid NOT NULL,
+    target_kind text NOT NULL,
+    client_card_id uuid,
+    account_id uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT note_tag_target_matches_kind CHECK ((((target_kind = 'client_card'::text) AND (client_card_id IS NOT NULL) AND (account_id IS NULL)) OR ((target_kind = 'account'::text) AND (account_id IS NOT NULL) AND (client_card_id IS NULL))))
+);
+
+
+--
 -- Name: notice; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -323,6 +401,21 @@ CREATE TABLE public.notice (
     CONSTRAINT notice_key_known CHECK ((key = ANY (ARRAY['notify.limit_new_client'::text, 'notify.archived_client_tried'::text, 'notify.invite_registered'::text, 'client.linked_notice'::text, 'notify.rescheduled'::text, 'notify.cancelled'::text, 'admin.access_granted'::text]))),
     CONSTRAINT notice_params_object CHECK ((jsonb_typeof(params) = 'object'::text)),
     CONSTRAINT notice_tab_known CHECK ((tab = ANY (ARRAY['people'::text, 'meetings'::text, 'profile'::text])))
+);
+
+
+--
+-- Name: preseeded_note_set; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.preseeded_note_set (
+    preseeded_note_set_id text NOT NULL,
+    version integer NOT NULL,
+    content jsonb NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT preseeded_note_set_content_object CHECK ((jsonb_typeof(content) = 'object'::text)),
+    CONSTRAINT preseeded_note_set_language_known CHECK ((preseeded_note_set_id = ANY (ARRAY['ru'::text, 'en'::text]))),
+    CONSTRAINT preseeded_note_set_version_positive CHECK ((version >= 1))
 );
 
 
@@ -373,6 +466,17 @@ CREATE TABLE public.subscription (
     until date NOT NULL,
     granted_by text NOT NULL,
     granted_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: tag_history; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.tag_history (
+    leader_account_id uuid NOT NULL,
+    client_card_id uuid NOT NULL,
+    first_tagged_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
 
@@ -473,6 +577,14 @@ ALTER TABLE ONLY public.feedback_message
 
 
 --
+-- Name: folder folder_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.folder
+    ADD CONSTRAINT folder_pkey PRIMARY KEY (folder_id);
+
+
+--
 -- Name: leader_profile leader_profile_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -529,11 +641,75 @@ ALTER TABLE ONLY public.meeting
 
 
 --
+-- Name: note_checklist_tick note_checklist_tick_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.note_checklist_tick
+    ADD CONSTRAINT note_checklist_tick_pkey PRIMARY KEY (note_id, account_id);
+
+
+--
+-- Name: note note_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.note
+    ADD CONSTRAINT note_pkey PRIMARY KEY (note_id);
+
+
+--
+-- Name: note_request_receipt note_request_receipt_key_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.note_request_receipt
+    ADD CONSTRAINT note_request_receipt_key_unique UNIQUE (account_id, operation, idempotency_key);
+
+
+--
+-- Name: note_request_receipt note_request_receipt_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.note_request_receipt
+    ADD CONSTRAINT note_request_receipt_pkey PRIMARY KEY (note_request_receipt_id);
+
+
+--
+-- Name: note_tag note_tag_account_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.note_tag
+    ADD CONSTRAINT note_tag_account_unique UNIQUE (note_id, account_id);
+
+
+--
+-- Name: note_tag note_tag_card_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.note_tag
+    ADD CONSTRAINT note_tag_card_unique UNIQUE (note_id, client_card_id);
+
+
+--
+-- Name: note_tag note_tag_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.note_tag
+    ADD CONSTRAINT note_tag_pkey PRIMARY KEY (note_tag_id);
+
+
+--
 -- Name: notice notice_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.notice
     ADD CONSTRAINT notice_pkey PRIMARY KEY (notice_id);
+
+
+--
+-- Name: preseeded_note_set preseeded_note_set_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.preseeded_note_set
+    ADD CONSTRAINT preseeded_note_set_pkey PRIMARY KEY (preseeded_note_set_id);
 
 
 --
@@ -582,6 +758,14 @@ ALTER TABLE ONLY public.sign_in_ticket
 
 ALTER TABLE ONLY public.subscription
     ADD CONSTRAINT subscription_pkey PRIMARY KEY (account_id);
+
+
+--
+-- Name: tag_history tag_history_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.tag_history
+    ADD CONSTRAINT tag_history_pkey PRIMARY KEY (leader_account_id, client_card_id);
 
 
 --
@@ -663,6 +847,13 @@ CREATE INDEX ix_feedback_message_account_id ON public.feedback_message USING btr
 
 
 --
+-- Name: ix_folder_owner_created; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_folder_owner_created ON public.folder USING btree (owner_account_id, created_at, folder_id);
+
+
+--
 -- Name: ix_meeting_client_card_id_starts_at; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -691,6 +882,55 @@ CREATE INDEX ix_meeting_leader_account_id_starts_at ON public.meeting USING btre
 
 
 --
+-- Name: ix_note_author_updated; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_note_author_updated ON public.note USING btree (author_account_id, updated_at, note_id);
+
+
+--
+-- Name: ix_note_checklist_tick_account_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_note_checklist_tick_account_id ON public.note_checklist_tick USING btree (account_id);
+
+
+--
+-- Name: ix_note_folder_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_note_folder_id ON public.note USING btree (folder_id);
+
+
+--
+-- Name: ix_note_reply_to_note_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_note_reply_to_note_id ON public.note USING btree (reply_to_note_id);
+
+
+--
+-- Name: ix_note_request_receipt_note_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_note_request_receipt_note_id ON public.note_request_receipt USING btree (note_id);
+
+
+--
+-- Name: ix_note_tag_account_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_note_tag_account_id ON public.note_tag USING btree (account_id);
+
+
+--
+-- Name: ix_note_tag_client_card_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_note_tag_client_card_id ON public.note_tag USING btree (client_card_id);
+
+
+--
 -- Name: ix_notice_account_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -709,6 +949,13 @@ CREATE INDEX ix_session_account_id ON public.session USING btree (account_id);
 --
 
 CREATE INDEX ix_sign_in_ticket_account_id ON public.sign_in_ticket USING btree (account_id);
+
+
+--
+-- Name: ix_tag_history_client_card_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_tag_history_client_card_id ON public.tag_history USING btree (client_card_id);
 
 
 --
@@ -783,6 +1030,14 @@ ALTER TABLE ONLY public.balance_operation
 
 
 --
+-- Name: folder folder_owner_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.folder
+    ADD CONSTRAINT folder_owner_account_id_fkey FOREIGN KEY (owner_account_id) REFERENCES public.account(account_id) ON DELETE RESTRICT;
+
+
+--
 -- Name: leader_profile leader_profile_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -831,6 +1086,86 @@ ALTER TABLE ONLY public.meeting
 
 
 --
+-- Name: note note_author_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.note
+    ADD CONSTRAINT note_author_account_id_fkey FOREIGN KEY (author_account_id) REFERENCES public.account(account_id) ON DELETE RESTRICT;
+
+
+--
+-- Name: note_checklist_tick note_checklist_tick_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.note_checklist_tick
+    ADD CONSTRAINT note_checklist_tick_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.account(account_id) ON DELETE CASCADE;
+
+
+--
+-- Name: note_checklist_tick note_checklist_tick_note_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.note_checklist_tick
+    ADD CONSTRAINT note_checklist_tick_note_id_fkey FOREIGN KEY (note_id) REFERENCES public.note(note_id) ON DELETE CASCADE;
+
+
+--
+-- Name: note note_folder_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.note
+    ADD CONSTRAINT note_folder_id_fkey FOREIGN KEY (folder_id) REFERENCES public.folder(folder_id) ON DELETE SET NULL;
+
+
+--
+-- Name: note note_reply_to_note_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.note
+    ADD CONSTRAINT note_reply_to_note_id_fkey FOREIGN KEY (reply_to_note_id) REFERENCES public.note(note_id) ON DELETE SET NULL;
+
+
+--
+-- Name: note_request_receipt note_request_receipt_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.note_request_receipt
+    ADD CONSTRAINT note_request_receipt_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.account(account_id) ON DELETE RESTRICT;
+
+
+--
+-- Name: note_request_receipt note_request_receipt_note_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.note_request_receipt
+    ADD CONSTRAINT note_request_receipt_note_id_fkey FOREIGN KEY (note_id) REFERENCES public.note(note_id) ON DELETE SET NULL;
+
+
+--
+-- Name: note_tag note_tag_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.note_tag
+    ADD CONSTRAINT note_tag_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.account(account_id) ON DELETE CASCADE;
+
+
+--
+-- Name: note_tag note_tag_client_card_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.note_tag
+    ADD CONSTRAINT note_tag_client_card_id_fkey FOREIGN KEY (client_card_id) REFERENCES public.client_card(client_card_id) ON DELETE RESTRICT;
+
+
+--
+-- Name: note_tag note_tag_note_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.note_tag
+    ADD CONSTRAINT note_tag_note_id_fkey FOREIGN KEY (note_id) REFERENCES public.note(note_id) ON DELETE CASCADE;
+
+
+--
 -- Name: notice notice_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -860,6 +1195,22 @@ ALTER TABLE ONLY public.sign_in_ticket
 
 ALTER TABLE ONLY public.subscription
     ADD CONSTRAINT subscription_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.account(account_id) ON DELETE CASCADE;
+
+
+--
+-- Name: tag_history tag_history_client_card_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.tag_history
+    ADD CONSTRAINT tag_history_client_card_id_fkey FOREIGN KEY (client_card_id) REFERENCES public.client_card(client_card_id) ON DELETE CASCADE;
+
+
+--
+-- Name: tag_history tag_history_leader_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.tag_history
+    ADD CONSTRAINT tag_history_leader_account_id_fkey FOREIGN KEY (leader_account_id) REFERENCES public.account(account_id) ON DELETE CASCADE;
 
 
 --

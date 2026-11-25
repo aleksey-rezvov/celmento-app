@@ -1,12 +1,14 @@
 import { webcrypto } from "node:crypto";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from "vitest";
+import { NotesBlock } from "@/components/clients/card/NotesBlock";
 import { AppNavigationProvider } from "@/components/shell/navigation";
 import { AccountProvider } from "@/lib/account";
 import type { Schemas } from "@/lib/api/client";
 import { t } from "@/lib/i18n/messages";
 import { setSessionToken } from "@/lib/session";
+import NotesPage from "../../../notes/page";
 import ClientArchivePage from "./archive/page";
 import BalancePage from "./balance/page";
 import EditClientPage from "./edit/page";
@@ -18,10 +20,12 @@ const navigation = vi.hoisted(() => ({
   push: vi.fn(),
   replace: vi.fn(),
   params: { id: "card-one", paymentId: "payment-current" },
+  query: "",
 }));
 vi.mock("next/navigation", () => ({
   useRouter: () => navigation,
   useParams: () => navigation.params,
+  useSearchParams: () => new URLSearchParams(navigation.query),
 }));
 
 const api = "https://api.example.test";
@@ -70,6 +74,7 @@ type Card = Schemas["ClientCard"];
 type Summary = Schemas["BalanceSummary"];
 type History = Schemas["ClientBalance"];
 type Operation = Schemas["BalanceOperation"];
+type Note = Schemas["Note"];
 
 function balance(amount = "0", currency: Schemas["Currency"] = "USD"): Summary {
   return { balance: { amount, currency }, sessions_left: null, unpaid_sessions: null };
@@ -123,6 +128,23 @@ function operation(overrides: Partial<Operation> = {}): Operation {
   };
 }
 
+function relatedNote(id: string, title: string, overrides: Partial<Note> = {}): Note {
+  return {
+    id,
+    author: { id: account.id, name: account.first_name + " " + account.last_name, photo_url: null },
+    title,
+    text: "Related session details",
+    can_edit: true,
+    shared_with_me: false,
+    folder_id: null,
+    tags: [],
+    checked_items: [],
+    created_at: instant,
+    updated_at: instant,
+    ...overrides,
+  };
+}
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -156,6 +178,8 @@ function setupApi(
       if (path === "/clients/card-one" && request.method === "GET") return json(current);
       if (path === "/clients/card-one/balance") return json(history);
       if (path === "/clients/card-one/meetings") return json({ upcoming: [], past: [] });
+      if (path === "/clients/card-one/notes")
+        return json({ items: [] } satisfies Schemas["ClientNoteList"]);
       if (path === "/clients/card-one" && request.method === "PATCH") {
         const changes: Schemas["ClientUpdate"] = await request.json();
         current = { ...current, ...changes };
@@ -231,6 +255,7 @@ beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_CLM_APP_CONTOUR", "world");
   setSessionToken(session);
   navigation.params = { id: "card-one", paymentId: "payment-current" };
+  navigation.query = "";
 });
 
 afterEach(() => {
@@ -853,4 +878,112 @@ test("restores the archived card through its menu and refreshes the active clien
   await waitFor(() => expect(navigation.replace).toHaveBeenCalledExactlyOnceWith("/app/people"));
   expect(all(requests, "POST", "/clients/card-one/restore")).toHaveLength(1);
   expect(all(requests, "GET", "/account")).toHaveLength(2);
+});
+
+// spec:test client-card-view-edit#show-notes-block-3-latest
+// spec:test notes-grid-folders#open-screen-7-1-filtered-one
+test("lists three recent notes on an archived client and opens every related note in context", async () => {
+  const clientId = "019ac7a0-0000-7ab1-b031-200000000001";
+  const endpoint = "/clients/" + clientId;
+  const current = card({ id: clientId, status: "archived", archived_at: instant });
+  const items = [
+    relatedNote("reply", "Reply from this client", {
+      author: { id: "related-account", name: current.name, photo_url: null },
+      shared_with_me: true,
+      can_edit: false,
+      updated_at: "2026-11-25T13:00:00Z",
+    }),
+    relatedNote("plan", "My note about this client", {
+      folder_id: "019ac7a0-0000-7ab1-b031-200000000002",
+    }),
+    relatedNote("third", "Third related note", { updated_at: "2026-11-25T10:00:00Z" }),
+    relatedNote("earliest", "Earlier related note", { updated_at: "2026-11-25T09:00:00Z" }),
+  ];
+  const requests = setupApi(current, undefined, (request, path) => {
+    if (path === endpoint) return json(current);
+    if (path === endpoint + "/meetings") return json({ upcoming: [], past: [] });
+    if (path === endpoint + "/notes") return json({ items: items.slice(0, 3) });
+    if (path === "/notes") {
+      expect(new URL(request.url).searchParams.get("client_id")).toBe(clientId);
+      return json({ items, total: items.length } satisfies Schemas["NoteList"]);
+    }
+  });
+  navigation.params.id = clientId;
+  const view = render(providers(<ClientPage />));
+  const gridTile = await screen.findByRole("button", { name: "Reply from this client" });
+  const noteBlock = screen.getByRole("heading", { name: t("notes.title") }).closest("section");
+  if (!noteBlock) throw new Error("Expected note block.");
+  const noteTiles = within(noteBlock).getByRole("list");
+  expect(
+    within(noteTiles)
+      .getAllByRole("button")
+      .map((tile) => tile.querySelector(".notes-tile-title")?.textContent),
+  ).toEqual(items.slice(0, 3).map(({ title }) => title));
+  expect(within(gridTile).getByText(t("notes.shared_badge"))).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Earlier related note" })).toBeNull();
+  expect(screen.queryByRole("button", { name: t("client.note") })).toBeNull();
+  const latest = all(requests, "GET", endpoint + "/notes")[0];
+  expect(latest?.url).toBe(api + "/api/v1" + endpoint + "/notes?limit=3");
+  expect(latest?.headers.get("Authorization")).toBe("Bearer " + session);
+  click("Reply from this client");
+  expect(navigation.push).toHaveBeenLastCalledWith("/app/notes/reply?client_id=" + clientId);
+
+  click(t("extra.client_all_notes"));
+  const url = new URL("/app/notes?client_id=" + clientId, api);
+  expect(navigation.push).toHaveBeenLastCalledWith(url.pathname + url.search);
+  navigation.query = url.search;
+  view.rerender(providers(<NotesPage />));
+  expect(await screen.findByRole("button", { name: "Earlier related note" })).toBeTruthy();
+  const filtered = screen.getByRole("list");
+  expect(
+    within(filtered)
+      .getAllByRole("button")
+      .map((tile) => tile.querySelector(".notes-tile-title")?.textContent),
+  ).toEqual(items.map(({ title }) => title));
+  expect(screen.getByRole("link", { name: t("extra.back") }).getAttribute("href")).toBe(
+    "/app/people" + endpoint,
+  );
+  expect(all(requests, "GET", "/folders")).toHaveLength(0);
+});
+
+test("updates the client Notes block on focus and reconnect, and drops the old list on 404", async () => {
+  vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+  const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(true);
+  const first = relatedNote("retained", "Original shared preview", {
+    shared_with_me: true,
+    can_edit: false,
+  });
+  const path = "/clients/card-one/notes";
+  let readers = 0;
+  const requests = setupApi(card(), undefined, (_request, endpoint) => {
+    if (endpoint === path) {
+      readers += 1;
+      if (readers === 1) return json({ items: [first] });
+      if (readers === 2) throw new TypeError("Temporary connection failure.");
+      if (readers === 3) return json({ items: [{ ...first, title: "Latest shared preview" }] });
+      return json({ code: "not_found" }, 404);
+    }
+  });
+  render(providers(<NotesBlock clientId="card-one" />));
+  await screen.findByRole("button", { name: first.title });
+  await act(async () => window.dispatchEvent(new Event("focus")));
+  expect(screen.getByRole("button", { name: first.title })).toBeTruthy();
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(readers).toBe(2);
+
+  online.mockReturnValue(false);
+  await act(async () => window.dispatchEvent(new Event("focus")));
+  expect(readers).toBe(2);
+  online.mockReturnValue(true);
+  await act(async () => window.dispatchEvent(new Event("online")));
+  expect(await screen.findByRole("button", { name: "Latest shared preview" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: first.title })).toBeNull();
+
+  await act(async () => window.dispatchEvent(new Event("focus")));
+  expect(await screen.findByRole("alert")).toHaveProperty(
+    "textContent",
+    t("extra.notes_no_results"),
+  );
+  expect(screen.queryByRole("button", { name: "Latest shared preview" })).toBeNull();
+  expect(all(requests, "GET", path)).toHaveLength(4);
 });

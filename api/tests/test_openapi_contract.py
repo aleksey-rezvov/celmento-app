@@ -94,7 +94,7 @@ def test_api_enumerations_match_contract(openapi_contract: dict[str, object]) ->
     assert actual == expected
 
 
-def test_account_client_payment_and_meeting_request_bodies_are_named() -> None:
+def test_write_requests_use_named_schemas() -> None:
     paths = _object(api.openapi()["paths"], "generated paths")
     for path, method, media_type, name in (
         ("/account", "patch", "application/json", "AccountUpdate"),
@@ -133,6 +133,18 @@ def test_account_client_payment_and_meeting_request_bodies_are_named() -> None:
             "put",
             "application/json",
             "MeetingOutcomeInput",
+        ),
+        ("/folders", "post", "application/json", "FolderCreate"),
+        ("/folders/{folder_id}", "patch", "application/json", "FolderUpdate"),
+        ("/notes", "post", "application/json", "NoteCreate"),
+        ("/notes/{note_id}", "patch", "application/json", "NoteUpdate"),
+        ("/notes/{note_id}/tags", "post", "application/json", "NoteTagCreate"),
+        ("/notes/{note_id}/replies", "post", "application/json", "NoteReplyCreate"),
+        (
+            "/notes/{note_id}/checklist-ticks",
+            "put",
+            "application/json",
+            "NoteChecklistTicks",
         ),
     ):
         operation = _object(_object(paths[path], path)[method], method)

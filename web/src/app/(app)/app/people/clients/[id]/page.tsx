@@ -16,6 +16,7 @@ import { ClientHeader } from "@/components/clients/card/ClientHeader";
 import { ContactsBlock } from "@/components/clients/card/ContactsBlock";
 import { LinkBlock } from "@/components/clients/card/LinkBlock";
 import { MeetingsBlock } from "@/components/clients/card/MeetingsBlock";
+import { NotesBlock } from "@/components/clients/card/NotesBlock";
 import { PrivateTextBlock } from "@/components/clients/card/PrivateTextBlock";
 import { QuickActions } from "@/components/clients/card/QuickActions";
 import { Sheet } from "@/components/shell/Sheet";
@@ -134,6 +135,7 @@ function ClientCardView({ card, onChanged }: ClientCardViewProps): ReactElement 
           editHref={edit && edit + "#hypotheses"}
           fields={[{ label: "client.hypotheses", value: card.hypotheses }]}
         />
+        <NotesBlock clientId={card.id} />
       </div>
       {/* spec:impl client-card-view-edit#offer-three-dot-menu-screen-6-1 */}
       {menu && (
