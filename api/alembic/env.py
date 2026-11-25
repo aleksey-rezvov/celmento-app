@@ -8,10 +8,14 @@ from celmento_api.config import get_settings
 from celmento_api.db import Base, engine
 
 import_module("celmento_api.models.account")
+import_module("celmento_api.models.balance")
+import_module("celmento_api.models.client_card")
+import_module("celmento_api.models.client_request_receipt")
 import_module("celmento_api.models.feedback")
 import_module("celmento_api.models.leader")
 import_module("celmento_api.models.legal")
 import_module("celmento_api.models.notice")
+import_module("celmento_api.models.subscription")
 
 
 def run_migrations_offline() -> None:

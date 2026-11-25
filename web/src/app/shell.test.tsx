@@ -118,6 +118,11 @@ function signIn(account: Account, notices: Notice[] = []): Request[] {
         return json(account);
       case "/api/v1/notices":
         return json({ items: notices } satisfies Schemas["NoticeList"]);
+      case "/api/v1/clients":
+        if (account.leader) {
+          return json({ items: [], plan: account.leader.plan } satisfies Schemas["ClientList"]);
+        }
+        throw new Error("Non-leaders must not request the Clients section.");
       default:
         throw new Error(`Unexpected request: ${request.url}`);
     }
@@ -132,6 +137,7 @@ function atPath(pathname: string, page: ReactElement): ReactElement {
 function menuLinks(menu: HTMLElement): (string | null)[] {
   return within(menu)
     .getAllByRole("link")
+    .filter((link) => !link.classList.contains("shell-floating-action"))
     .map((link) => link.getAttribute("href"));
 }
 
@@ -251,9 +257,9 @@ test.each([false, true])(
       ...(activated ? [t("clients.title")] : []),
       t("c.my_specialists"),
     ]);
-    const create = within(menu).queryByRole("button", { name: t("clients.empty_add") });
+    const create = within(menu).queryByRole("link", { name: t("clients.empty_add") });
     if (activated) {
-      expect(create).toHaveProperty("disabled", true);
+      expect(create?.getAttribute("href")).toBe("/app/people/clients/new");
     } else {
       expect(create).toBeNull();
     }
@@ -283,15 +289,16 @@ test.each([false, true])(
     }
 
     view.rerender(atPath("/app/people", <People />));
-    const createClient = menuContent.queryByRole("button", { name: t("clients.empty_add") });
+    const createClient = menuContent.queryByRole("link", { name: t("clients.empty_add") });
     if (activated) {
-      expect(createClient).toHaveProperty("disabled", true);
+      expect(createClient?.getAttribute("href")).toBe("/app/people/clients/new");
     } else {
       expect(createClient).toBeNull();
     }
 
     view.rerender(atPath("/app/records", <Records />));
     expect(menuContent.queryByRole("button")).toBeNull();
+    expect(menuContent.queryByRole("link", { name: t("clients.empty_add") })).toBeNull();
     if (activated) {
       expect(screen.getByRole("heading", { name: t("acc.title") })).toBeDefined();
     } else {
@@ -301,6 +308,7 @@ test.each([false, true])(
 
     view.rerender(atPath("/app/profile", <main />));
     expect(menuContent.queryByRole("button")).toBeNull();
+    expect(menuContent.queryByRole("link", { name: t("clients.empty_add") })).toBeNull();
   },
 );
 

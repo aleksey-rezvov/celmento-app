@@ -574,7 +574,7 @@ export interface paths {
       };
       cookie?: never;
     };
-    get?: never;
+    get: operations["getClientPhoto"];
     put: operations["uploadClientPhoto"];
     post?: never;
     delete: operations["deleteClientPhoto"];
@@ -1271,6 +1271,7 @@ export interface components {
     Contour: "ru" | "world";
     Currency: "RUB" | "EUR" | "USD";
     DecimalAmount: string;
+    StoredDecimalAmount: string;
     Money: {
       amount: components["schemas"]["DecimalAmount"];
       currency: components["schemas"]["Currency"];
@@ -1382,8 +1383,8 @@ export interface components {
     };
     BalanceSummary: {
       balance: components["schemas"]["Money"];
-      sessions_left: number | null;
-      unpaid_sessions: number | null;
+      sessions_left: string | null;
+      unpaid_sessions: string | null;
     };
     ClientRef: {
       id: string;
@@ -1394,9 +1395,10 @@ export interface components {
       time_zone: components["schemas"]["TimeZone"] | null;
     };
     ClientLinkStatus: "standalone" | "linked" | "unlinked_by_client";
+    ClientLinkMethod: "auto" | "login";
     ClientLink: {
       status: components["schemas"]["ClientLinkStatus"];
-      method: "auto" | "login" | null;
+      method: components["schemas"]["ClientLinkMethod"] | null;
       login: string | null;
     };
     ClientCard: {
@@ -1436,6 +1438,7 @@ export interface components {
       comment: string | null;
       meeting_id: string | null;
       created_by_system: boolean;
+      editable: boolean;
       created_at: string;
     };
     Meeting: {
@@ -1817,7 +1820,7 @@ export interface components {
       email?: string | null;
       telegram?: string | null;
       whatsapp?: string | null;
-      rate?: components["schemas"]["DecimalAmount"] | null;
+      rate?: components["schemas"]["StoredDecimalAmount"] | null;
       currency?: components["schemas"]["Currency"];
       payment_type?: components["schemas"]["PaymentType"];
     };
@@ -1829,7 +1832,7 @@ export interface components {
       whatsapp?: string | null;
       other_contact?: string | null;
       preferred_channel?: components["schemas"]["ContactChannel"] | null;
-      rate?: components["schemas"]["DecimalAmount"] | null;
+      rate?: components["schemas"]["StoredDecimalAmount"] | null;
       currency?: components["schemas"]["Currency"];
       request?: string | null;
       goals?: string | null;
@@ -1848,12 +1851,12 @@ export interface components {
       items: components["schemas"]["BalanceOperation"][];
     };
     ClientPaymentCreate: {
-      amount: components["schemas"]["DecimalAmount"];
+      amount: components["schemas"]["StoredDecimalAmount"];
       date: string;
       comment?: string | null;
     };
     ClientPaymentUpdate: {
-      amount?: components["schemas"]["DecimalAmount"];
+      amount?: components["schemas"]["StoredDecimalAmount"];
       date?: string;
       comment?: string | null;
     };
@@ -1993,7 +1996,7 @@ export interface components {
       session_duration_minutes?: 15 | 30 | 45 | 60 | 75 | 90;
       session_format?: components["schemas"]["SessionFormat"];
       default_meeting_link?: string | null;
-      default_rate?: components["schemas"]["DecimalAmount"] | null;
+      default_rate?: components["schemas"]["StoredDecimalAmount"] | null;
       default_currency?: components["schemas"]["Currency"];
     };
     ProfilePhotoUpload: {
@@ -2269,7 +2272,9 @@ export interface components {
       };
     };
   };
-  parameters: never;
+  parameters: {
+    IdempotencyKey: string;
+  };
   requestBodies: never;
   headers: never;
   pathItems: never;
@@ -3021,7 +3026,9 @@ export interface operations {
   createClient: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+      };
       path?: never;
       cookie?: never;
     };
@@ -3069,6 +3076,7 @@ export interface operations {
       401: components["responses"]["Unauthorized"];
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
+      422: components["responses"]["ValidationError"];
       500: components["responses"]["InternalError"];
     };
   };
@@ -3177,6 +3185,7 @@ export interface operations {
       401: components["responses"]["Unauthorized"];
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
+      422: components["responses"]["ValidationError"];
       500: components["responses"]["InternalError"];
     };
   };
@@ -3234,6 +3243,7 @@ export interface operations {
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
+      422: components["responses"]["ValidationError"];
       500: components["responses"]["InternalError"];
     };
   };
@@ -3296,7 +3306,9 @@ export interface operations {
   createClientPayment: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+      };
       path: {
         client_id: string;
       };
@@ -3349,6 +3361,7 @@ export interface operations {
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
+      422: components["responses"]["ValidationError"];
       500: components["responses"]["InternalError"];
     };
   };
@@ -3381,6 +3394,37 @@ export interface operations {
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
+      422: components["responses"]["ValidationError"];
+      500: components["responses"]["InternalError"];
+    };
+  };
+  getClientPhoto: {
+    parameters: {
+      query?: {
+        version?: string;
+      };
+      header?: never;
+      path: {
+        client_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "image/jpeg": string;
+          "image/png": string;
+          "image/webp": string;
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
       422: components["responses"]["ValidationError"];
       500: components["responses"]["InternalError"];
     };
@@ -3439,6 +3483,7 @@ export interface operations {
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
+      422: components["responses"]["ValidationError"];
       500: components["responses"]["InternalError"];
     };
   };

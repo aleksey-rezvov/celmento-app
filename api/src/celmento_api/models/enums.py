@@ -203,6 +203,11 @@ class ClientLinkStatus(StrEnum):
     UNLINKED_BY_CLIENT = "unlinked_by_client"
 
 
+class ClientLinkMethod(StrEnum):
+    AUTO = "auto"
+    LOGIN = "login"
+
+
 class NoteTagTargetKind(StrEnum):
     CLIENT_CARD = "client_card"
     ACCOUNT = "account"

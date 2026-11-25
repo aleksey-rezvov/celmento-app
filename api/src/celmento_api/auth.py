@@ -43,3 +43,6 @@ async def current_leader(
     if account.activated_at is None:
         raise AppError(403, ErrorCode.ACTIVATION_REQUIRED)
     return account
+
+
+LeaderAccount = Annotated[Account, Depends(current_leader)]

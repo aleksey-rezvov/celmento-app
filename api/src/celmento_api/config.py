@@ -8,6 +8,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from celmento_api.models.enums import Contour
 
 REPOSITORY_ROOT: Path = Path(__file__).resolve().parents[3]
+API_PREFIX: str = "/api/v1"
 
 
 class Settings(BaseSettings):

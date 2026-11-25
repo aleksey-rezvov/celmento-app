@@ -29,7 +29,18 @@ from celmento_api.db import Base, get_session
 from celmento_api.errors import AppError, Error
 from celmento_api.main import api, app
 from celmento_api.models.account import Account, AccountSession, SignInTicket
-from celmento_api.models.enums import Contour, ErrorCode, Language, LegalDocumentKind
+from celmento_api.models.client_card import ClientCard
+from celmento_api.models.enums import (
+    ClientCardStatus,
+    ClientLinkMethod,
+    ClientSource,
+    Contour,
+    Currency,
+    ErrorCode,
+    Language,
+    LegalDocumentKind,
+    PaymentType,
+)
 from celmento_api.models.feedback import FeedbackMessage
 from celmento_api.models.leader import LeaderProfile, WorkingDay
 from celmento_api.models.legal import Acceptance, LegalDocumentVersion
@@ -299,6 +310,122 @@ def assert_error(response: Response, status: int, code: ErrorCode) -> Error:
     error = Error.model_validate_json(response.content)
     assert error.code == code
     return error
+
+
+# spec:test client-card-profile-link#match-self-given-email-against-account
+# spec:test client-card-profile-link#make-auto-link-account-created
+# spec:test client-card-profile-link#link-card-reference-contacts-name
+# spec:test client-card-profile-link#auto-link-card-account-linked
+async def test_registration_auto_links_only_eligible_cards_in_its_selected_contour(
+    auth_stand: AuthStand,
+) -> None:
+    email = "matching@example.com"
+    auth_stand.switch(Contour.RU)
+    await auth_stand.add_account("other-owner@example.com", "other_owner")
+    async with auth_stand.session() as session:
+        other_id = await session.scalar(select(Account.account_id))
+        assert other_id is not None
+        session.add(
+            ClientCard(
+                leader_account_id=other_id,
+                name="Other contour",
+                self_given_email=email,
+                source=ClientSource.BOOKED_VIA_LINK.value,
+                currency=Currency.RUB.value,
+                payment_type=PaymentType.PRO_BONO.value,
+            )
+        )
+        await session.commit()
+    package = await auth_stand.package("  MATCHING@EXAMPLE.COM ")
+    assert package.claims.email == email and package.claims.entry_contour == Contour.RU
+
+    auth_stand.switch(Contour.WORLD)
+    logins = ("owner_lila", "owner_mar", "owner_june")
+    for login in logins:
+        await auth_stand.add_account(f"{login}@example.com", login)
+    async with auth_stand.session() as session:
+        account_rows = await session.scalars(select(Account))
+        ids = {row.login: row.account_id for row in account_rows}
+        before = datetime.now(UTC) - timedelta(days=1)
+        active = ClientCard(
+            leader_account_id=ids[logins[0]],
+            name="First eligible",
+            email="private-reference@example.com",
+            self_given_email=email,
+            source=ClientSource.BOOKED_VIA_LINK.value,
+            currency=Currency.EUR.value,
+            payment_type=PaymentType.PRO_BONO.value,
+            created_at=before,
+        )
+        duplicate = ClientCard(
+            leader_account_id=ids[logins[0]],
+            name="Duplicate at the same owner",
+            self_given_email=email,
+            source=ClientSource.BOOKED_VIA_LINK.value,
+            currency=Currency.EUR.value,
+            payment_type=PaymentType.PRO_BONO.value,
+        )
+        archived = ClientCard(
+            leader_account_id=ids[logins[1]],
+            name="Archived eligible",
+            self_given_email=email,
+            source=ClientSource.BOOKED_VIA_LINK.value,
+            currency=Currency.USD.value,
+            payment_type=PaymentType.PRO_BONO.value,
+            status=ClientCardStatus.ARCHIVED.value,
+            archived_at=before,
+        )
+        blocked = ClientCard(
+            leader_account_id=ids[logins[2]],
+            name="Unlinked before",
+            self_given_email=email,
+            source=ClientSource.BOOKED_VIA_LINK.value,
+            currency=Currency.RUB.value,
+            payment_type=PaymentType.PRO_BONO.value,
+            auto_link_blocked=True,
+        )
+        reference_only = ClientCard(
+            leader_account_id=ids[logins[2]],
+            name="Reference contact only",
+            email=email,
+            source=ClientSource.CREATED.value,
+            currency=Currency.RUB.value,
+            payment_type=PaymentType.PRO_BONO.value,
+        )
+        session.add_all([active, duplicate, archived, blocked, reference_only])
+        await session.commit()
+
+    finish = auth_stand.finish_form(package, "matching_person")
+    finish["consents"] = await auth_stand.consents()
+    response = await auth_stand.post("registration/finish", finish)
+    assert response.status_code == 201
+    result = FinishRegistrationResult.model_validate_json(response.content)
+    assert result.outcome == FinishOutcome.TICKET and result.ticket is not None
+    exchanged = await auth_stand.post(
+        "tickets/exchange", {"ticket": result.ticket.ticket}
+    )
+    assert exchanged.status_code == 200
+    new_account = SignInSession.model_validate_json(exchanged.content).account
+    assert new_account.contour == Contour.WORLD and new_account.email == email
+    async with auth_stand.session() as session:
+        stored = {
+            row.client_card_id: row for row in await session.scalars(select(ClientCard))
+        }
+    assert stored[active.client_card_id].linked_account_id == new_account.id
+    assert stored[active.client_card_id].link_method == ClientLinkMethod.AUTO.value
+    assert stored[active.client_card_id].email == "private-reference@example.com"
+    assert stored[archived.client_card_id].linked_account_id == new_account.id
+    assert stored[archived.client_card_id].status == ClientCardStatus.ARCHIVED.value
+    for skipped in (duplicate, blocked, reference_only):
+        assert stored[skipped.client_card_id].linked_account_id is None
+
+    auth_stand.switch(Contour.RU)
+    async with auth_stand.session() as session:
+        other = await session.scalar(select(ClientCard))
+        assert other is not None and other.linked_account_id is None
+        assert (
+            await session.scalar(select(Account).where(Account.email == email)) is None
+        )
 
 
 def package_from(response: Response) -> RegistrationPackage:

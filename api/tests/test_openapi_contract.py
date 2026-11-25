@@ -94,11 +94,32 @@ def test_api_enumerations_match_contract(openapi_contract: dict[str, object]) ->
     assert actual == expected
 
 
-def test_account_update_and_photo_use_named_request_bodies() -> None:
+def test_account_clients_and_payments_use_named_request_bodies() -> None:
     paths = _object(api.openapi()["paths"], "generated paths")
     for path, method, media_type, name in (
         ("/account", "patch", "application/json", "AccountUpdate"),
         ("/account/photo", "put", "multipart/form-data", "ProfilePhotoUpload"),
+        ("/clients", "post", "application/json", "ClientCreate"),
+        ("/clients/{client_id}", "patch", "application/json", "ClientUpdate"),
+        ("/clients/{client_id}/link", "put", "application/json", "ClientLinkByLogin"),
+        (
+            "/clients/{client_id}/photo",
+            "put",
+            "multipart/form-data",
+            "ClientPhotoUpload",
+        ),
+        (
+            "/clients/{client_id}/payments",
+            "post",
+            "application/json",
+            "ClientPaymentCreate",
+        ),
+        (
+            "/clients/{client_id}/payments/{payment_id}",
+            "patch",
+            "application/json",
+            "ClientPaymentUpdate",
+        ),
     ):
         operation = _object(_object(paths[path], path)[method], method)
         request = _object(operation["requestBody"], "requestBody")

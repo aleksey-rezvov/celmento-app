@@ -1,5 +1,4 @@
 from datetime import date
-from decimal import Decimal
 from enum import StrEnum
 from typing import Annotated, ClassVar, TypedDict
 from uuid import UUID
@@ -30,6 +29,7 @@ from celmento_api.models.enums import (
     Weekday,
 )
 from celmento_api.schemas.documents import AcceptanceRecord
+from celmento_api.schemas.money import DecimalAmount, Rate
 
 Email = Annotated[str, Field(json_schema_extra={"format": "email"})]
 Uri = Annotated[str, Field(json_schema_extra={"format": "uri"})]
@@ -39,10 +39,8 @@ Name = Annotated[
 ]
 About = Annotated[TextInput, Field(max_length=1000)]
 TimeOfDay = Annotated[str, Field(pattern=r"^([01][0-9]|2[0-3]):[0-5][0-9]$")]
-DecimalAmount = Annotated[str, Field(pattern=r"^-?[0-9]+(\.[0-9]{1,2})?$")]
 
 SESSION_DURATIONS: tuple[int, ...] = (15, 30, 45, 60, 75, 90)
-RATE_MAX_EXCLUSIVE: Decimal = Decimal(1000000000000000)
 http_url: TypeAdapter[HttpUrl] = TypeAdapter(HttpUrl)
 
 
@@ -65,12 +63,6 @@ def validate_duration(value: int) -> int:
     return value
 
 
-def validate_rate(value: str) -> str:
-    if not 0 <= Decimal(value) < RATE_MAX_EXCLUSIVE:
-        raise ValueError("Rate is outside the supported range")
-    return value
-
-
 def validate_unique_specializations(
     value: list[Specialization],
 ) -> list[Specialization]:
@@ -86,7 +78,6 @@ SessionDuration = Annotated[
     Field(strict=True, json_schema_extra={"enum": list(SESSION_DURATIONS)}),
     AfterValidator(validate_duration),
 ]
-DefaultRate = Annotated[DecimalAmount, AfterValidator(validate_rate)]
 
 
 class PlanKind(StrEnum):
@@ -124,7 +115,7 @@ class LeaderProfileUpdate(TypedDict, total=False):
     session_duration_minutes: SessionDuration
     session_format: SessionFormat
     default_meeting_link: HttpLink | None
-    default_rate: DefaultRate | None
+    default_rate: Rate | None
     default_currency: Currency
 
 

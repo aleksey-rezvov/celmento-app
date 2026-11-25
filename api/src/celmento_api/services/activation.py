@@ -8,7 +8,7 @@ from celmento_api.models.enums import AcceptanceKind, ErrorCode
 from celmento_api.models.leader import LeaderProfile
 from celmento_api.models.legal import Acceptance
 from celmento_api.schemas.auth import AccountActivation
-from celmento_api.services.accounts import lock_account
+from celmento_api.services.account_access import lock_account
 from celmento_api.services.legal import (
     ACTIVATION_CONSENTS,
     record_acceptances,

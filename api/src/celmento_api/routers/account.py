@@ -7,10 +7,11 @@ from celmento_api.errors import error_responses
 from celmento_api.schemas.account import Account as AccountView
 from celmento_api.schemas.account import AccountUpdate, ProfilePhotoUpload
 from celmento_api.schemas.auth import AccountActivation, LoginAvailability
-from celmento_api.services.accounts import account_view, lock_account, update_account
+from celmento_api.services.account_access import lock_account
+from celmento_api.services.accounts import account_view, update_account
 from celmento_api.services.activation import activate
 from celmento_api.services.logins import login_status
-from celmento_api.storage import discard_photo, media_origin, save_photo
+from celmento_api.storage import discard_photo, media_origin, staged_photo
 
 router: APIRouter = APIRouter(prefix="/account", tags=["account"])
 
@@ -102,14 +103,10 @@ async def upload_account_photo(
 ) -> AccountView:
     account = await lock_account(session, account.account_id)
     previous_key = account.photo_key
-    key = await save_photo(body.file)
-    try:
+    async with staged_photo(body.file) as key:
         # spec:impl account-profile#let-account-add-photo-gallery
         account.photo_key = key
         result = await account_view(session, account, media_origin(request))
-    except BaseException:
-        await discard_photo(key)
-        raise
     # A failed commit can have an unknown outcome, so keep the candidate file.
     await session.commit()
     await discard_photo(previous_key)

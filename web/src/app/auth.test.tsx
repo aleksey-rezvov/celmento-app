@@ -773,6 +773,7 @@ test("uses the server's retry time when an attempted resend is still rate-limite
 
 // spec:test registration-finish-screen#show-finish-after-code
 // spec:test registration-finish-screen#show-celmento-master-blue-celmento-master-red
+// spec:test character-illustrations#show-celmento-master-blue-celmento-master-red
 // spec:test registration-finish-screen#show-age-checkbox-age-question
 // spec:test region-contours#show-region-field-region-screen
 test("renders the finish form in the entry region and omits the activation questions for attend", async () => {
