@@ -1694,6 +1694,7 @@ export interface components {
       email: string;
       code: string;
       registration?: components["schemas"]["AccountRegistration"];
+      registration_device_key?: components["schemas"]["RegistrationDevicePublicKey"];
     };
     SignInSession: {
       token: string;
@@ -1719,13 +1720,18 @@ export interface components {
       code_confirmed: boolean;
       issued_at: string;
       expires_at: string;
+      device_public_key: components["schemas"]["RegistrationDevicePublicKey"];
     };
+    RegistrationDevicePublicKey: string;
+    RegistrationDeviceProof: string;
     RegistrationPackageRef: {
       registration_package: string;
+      device_proof: components["schemas"]["RegistrationDeviceProof"];
     };
     RegistrationLoginCheck: {
       registration_package: string;
       login: string;
+      device_proof: components["schemas"]["RegistrationDeviceProof"];
     };
     RegistrationFinish: {
       registration_package: string;
@@ -1735,6 +1741,7 @@ export interface components {
       consents?: components["schemas"]["ConsentAcceptance"][];
       activation?: components["schemas"]["AccountActivation"];
       notify_specialist: boolean;
+      device_proof: components["schemas"]["RegistrationDeviceProof"];
     };
     AccountActivation: {
       age_confirmed: true;

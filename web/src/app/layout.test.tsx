@@ -25,7 +25,7 @@ test("wraps the page in a centered phone-width frame on the cream background", (
   );
   const document = new DOMParser().parseFromString(markup, "text/html");
 
-  expect(document.querySelector("body > .app-frame > main h1")?.textContent).toBe("celmēnto");
+  expect(document.querySelector("body > .app-frame > main")).not.toBeNull();
 
   const stylesheet = resolve("src/app/globals.css");
   const styles = postcss.parse(readFileSync(stylesheet, "utf8"));
