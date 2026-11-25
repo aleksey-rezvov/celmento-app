@@ -23,10 +23,10 @@ from celmento_api.models.meeting import MeetingCreateReceipt, MeetingExpenseCorr
 from celmento_api.schemas.balance import ClientBalance
 from celmento_api.schemas.meetings import ClientMeetingList
 
-__all__: list[str] = ["account_stand"]
+__all__: list[str] = ["account_stand", "client_form"]
 
 
-def _client_form(
+def client_form(
     client_id: UUID, starts_at: datetime, **edits: object
 ) -> dict[str, object]:
     return {
@@ -64,7 +64,7 @@ async def test_outcome_changes_reconcile_the_ledger_and_keep_deleted_charge(
         account_stand, leader, {"name": "Ledger card", "rate": "100.25"}
     )
     start = datetime(2025, 1, 13, 9, tzinfo=UTC)
-    body = _client_form(card.id, start)
+    body = client_form(card.id, start)
     problem(
         await client.post(MEETINGS, json={**body, "price": "0"}, headers=headers),
         400,
@@ -216,7 +216,7 @@ async def test_concurrent_backdated_create_replays_once_and_receipt_survives_del
     )
     key = uuid7()
     keyed = {**headers, "Idempotency-Key": str(key)}
-    body = _client_form(
+    body = client_form(
         card.id,
         datetime(2025, 2, 3, 9, tzinfo=UTC),
         price="249.99",
@@ -297,19 +297,19 @@ async def test_currency_changes_update_future_meetings_and_preserve_started_hist
 
     now = datetime.now(UTC).replace(microsecond=0)
     past = await post_meeting(
-        account_stand, leader, _client_form(card.id, now - timedelta(days=2))
+        account_stand, leader, client_form(card.id, now - timedelta(days=2))
     )
     later_past = await post_meeting(
-        account_stand, leader, _client_form(card.id, now - timedelta(days=1))
+        account_stand, leader, client_form(card.id, now - timedelta(days=1))
     )
     future = await post_meeting(
-        account_stand, leader, _client_form(card.id, now + timedelta(days=1))
+        account_stand, leader, client_form(card.id, now + timedelta(days=1))
     )
     second_future = await post_meeting(
-        account_stand, leader, _client_form(card.id, now + timedelta(days=2))
+        account_stand, leader, client_form(card.id, now + timedelta(days=2))
     )
     await post_meeting(
-        account_stand, leader, _client_form(future_only.id, now + timedelta(days=3))
+        account_stand, leader, client_form(future_only.id, now + timedelta(days=3))
     )
     client_path = f"{CLIENTS}/{card.id}"
     listing = list_from(await client.get(CLIENTS, headers=headers))

@@ -11,7 +11,12 @@ import { useAccount } from "@/lib/account";
 import type { Schemas } from "@/lib/api/client";
 import { formatDate, formatMoney, formatTime, otherPartyHint } from "@/lib/format";
 import { useLanguage, useTranslation, type MessageKey } from "@/lib/i18n";
-import { meetingPerson, meetingStatusLabels, meetingTypeLabels } from "@/lib/meeting-display";
+import {
+  isArchivedClientMeeting,
+  meetingPerson,
+  meetingStatusLabels,
+  meetingTypeLabels,
+} from "@/lib/meeting-display";
 import { copyText } from "@/lib/share";
 import { MeetingChangeSheet } from "./MeetingChangeSheet";
 import { MeetingScreen, meetingPath, meetingsPath } from "./MeetingScreen";
@@ -62,7 +67,7 @@ export function MeetingCardView({ meeting }: MeetingCardViewProps): ReactElement
   const mutual = meeting.type === "mutual_practice";
   const client = meeting.client_card;
   const clientRef = meeting.client;
-  const archived = client?.status === "archived";
+  const archived = isArchivedClientMeeting(meeting);
   const hasContacts =
     client &&
     [client.phone, client.telegram, client.whatsapp, client.email].some((value) => value?.trim());
@@ -136,6 +141,7 @@ export function MeetingCardView({ meeting }: MeetingCardViewProps): ReactElement
         </button>
       }
     >
+      {/* spec:impl meeting-card#render-meeting-client-archived-client */}
       <article
         className="meeting-panel meeting-detail"
         data-type={meeting.type}
@@ -309,20 +315,22 @@ export function MeetingCardView({ meeting }: MeetingCardViewProps): ReactElement
             >
               {t("card.edit")}
             </button>
-            <button
-              className="shell-destructive"
-              type="button"
-              onClick={() => {
-                setMenu(false);
-                setChange(true);
-              }}
-            >
-              {t(scheduled ? "card.cancel" : "card.delete")}
-            </button>
+            {!archived && (
+              <button
+                className="shell-destructive"
+                type="button"
+                onClick={() => {
+                  setMenu(false);
+                  setChange(true);
+                }}
+              >
+                {t(scheduled ? "card.cancel" : "card.delete")}
+              </button>
+            )}
           </div>
         </Sheet>
       )}
-      {change && (
+      {change && !archived && (
         <MeetingChangeSheet
           meeting={meeting}
           onClose={() => setChange(false)}

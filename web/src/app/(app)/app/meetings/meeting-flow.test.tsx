@@ -8,6 +8,7 @@ import type { Schemas } from "@/lib/api/client";
 import { t } from "@/lib/i18n/messages";
 import { loadDraft, saveDraft } from "@/lib/meeting-draft";
 import { setSessionToken } from "@/lib/session";
+import ClientArchivePage from "../people/clients/[id]/archive/page";
 import ClientCardPage from "../people/clients/[id]/page";
 import ClientMeetingsPage from "../people/clients/[id]/meetings/page";
 import EditMeetingPage from "./[id]/edit/page";
@@ -832,10 +833,269 @@ test("falls back to session defaults when a malformed old draft is loaded", asyn
   expect(loadDraft("owner", newHref)).toBeNull();
 });
 
+// spec:test client-archive-restore#list-screen-5-4-planned-client
+// spec:test client-archive-restore#show-balance-client-currency-screen
+// spec:test client-archive-restore#show-keep-history-buttons-confirm-cancel
+// spec:test client-archive-restore#show-top-screen-5-4-outcomes-first
+// spec:test client-archive-restore#keep-confirm-disabled-outcomes-first
+// spec:test client-archive-restore#run-usual-outcome-flow-buttons
+test("records both kinds of missing outcome and returns to refresh the archive confirmation", async () => {
+  const archiveHref = cardHref + "/archive";
+  const pending = [meeting(), meeting({ id: "meeting-two", starts_at: "2026-02-11T14:30:00Z" })];
+  const scheduled = meeting({ id: "meeting-future", starts_at: future, awaiting_outcome: false });
+  const outcomes = new Map<string, Schemas["MeetingOutcomeInput"]>();
+  const requests = setup(async (request, path) => {
+    if (path === "/clients/card-one/archive-preview") {
+      return json({
+        preview_token: "archive-preview",
+        meetings_awaiting_outcome: pending.filter(({ id }) => !outcomes.has(id)),
+        meetings_to_delete: [scheduled],
+        balance: { amount: "-745.20", currency: "EUR" },
+      } satisfies Schemas["ClientArchivePreview"]);
+    }
+    const session = pending.find(
+      ({ id }) => path === `/meetings/${id}` || path === `/meetings/${id}/outcome`,
+    );
+    if (session && request.method === "GET") return json(session);
+    if (session && request.method === "PUT") {
+      const outcome: Schemas["MeetingOutcomeInput"] = await request.json();
+      outcomes.set(session.id, outcome);
+      return json({
+        ...session,
+        status: outcome.status,
+        actual_duration_minutes: outcome.actual_duration_minutes ?? null,
+        charged: outcome.charged ?? null,
+        awaiting_outcome: false,
+      } satisfies Detail);
+    }
+  });
+
+  nav.id = "card-one";
+  setLocation(archiveHref);
+  const viewResult = render(view(<ClientArchivePage />));
+  const blockTitle = t("archive.outcomes_first");
+  await screen.findByRole("heading", { name: blockTitle });
+  const panel = screen.getByRole("heading", { name: blockTitle }).parentElement?.parentElement;
+  expect(panel?.firstElementChild?.textContent).toContain(blockTitle);
+  expect(screen.getByRole("heading", { name: t("archive.planned") })).toBeTruthy();
+  expect(screen.getByText("25 November · 14:00")).toBeTruthy();
+  expect(screen.getByText(t("archive.balance", { amount: "−745.20 €" }))).toBeTruthy();
+  expect(screen.getByText(t("archive.keep_history"))).toBeTruthy();
+  expect(button("archive.confirm")).toHaveProperty("disabled", true);
+  expect(button("archive.cancel")).toHaveProperty("disabled", false);
+
+  const first = screen.getByText("10 February · 14:00").closest("li");
+  if (!first) throw new Error("Expected the first pending session.");
+  fireEvent.click(within(first).getByRole("button", { name: t("outcome.done") }));
+  const doneHref = meetingHref + "/outcome?from=archive&status=completed";
+  expect(nav.push).toHaveBeenLastCalledWith(doneHref);
+  nav.id = "meeting-one";
+  setLocation(doneHref + "&returnTo=/app/profile&client_id=unrelated-card");
+  viewResult.rerender(view(<OutcomePage />));
+  const actual = await screen.findByRole("textbox", { name: t("outcome.actual_duration") });
+  expect(actual).toHaveProperty("value", "45");
+  fireEvent.click(button("form.save"));
+  await screen.findByRole("heading", { name: t("outcome.saved_hours") });
+  fireEvent.click(button("extra.close"));
+  expect(nav.push).toHaveBeenLastCalledWith(archiveHref);
+  expect(outcomes.get("meeting-one")).toEqual({
+    status: "completed",
+    actual_duration_minutes: 45,
+    price: "1900",
+    payment_type: "paid",
+  });
+
+  nav.id = "card-one";
+  setLocation(archiveHref);
+  viewResult.rerender(view(<ClientArchivePage />));
+  const second = (await screen.findByText("11 February · 15:30")).closest("li");
+  if (!second) throw new Error("Expected the second pending session.");
+  expect(screen.queryByText("10 February · 14:00")).toBeNull();
+  expect(button("archive.confirm")).toHaveProperty("disabled", true);
+  fireEvent.click(within(second).getByRole("button", { name: t("outcome.missed") }));
+  const missedHref = "/app/meetings/meeting-two/outcome?from=archive&status=not_taken_place";
+  expect(nav.push).toHaveBeenLastCalledWith(missedHref);
+  nav.id = "meeting-two";
+  setLocation(missedHref);
+  viewResult.rerender(view(<OutcomePage />));
+  await screen.findByRole("group", { name: t("outcome.charge_q") });
+  expect(button("form.save")).toHaveProperty("disabled", true);
+  fireEvent.click(button("outcome.no"));
+  fireEvent.click(button("form.save"));
+  await screen.findByText(t("card.hours_not_counted"));
+  fireEvent.click(button("extra.close"));
+  expect(nav.push).toHaveBeenLastCalledWith(archiveHref);
+  expect(outcomes.get("meeting-two")).toEqual({ status: "not_taken_place", charged: false });
+
+  nav.id = "card-one";
+  setLocation(archiveHref);
+  viewResult.rerender(view(<ClientArchivePage />));
+  await screen.findByRole("heading", { name: t("archive.planned") });
+  expect(screen.queryByRole("heading", { name: blockTitle })).toBeNull();
+  expect(button("archive.confirm")).toHaveProperty("disabled", false);
+  fireEvent.click(button("archive.cancel"));
+  expect(nav.push).toHaveBeenLastCalledWith(cardHref);
+  expect(outcomes.size).toBe(2);
+  expect(calls(requests, "POST", "/clients/card-one/archive")).toHaveLength(0);
+});
+
+test("refreshes a changed archive preview and requires another confirmation of the new list", async () => {
+  nav.id = "card-one";
+  setLocation(cardHref + "/archive");
+  const scheduled = meeting({ id: "meeting-future", starts_at: future, awaiting_outcome: false });
+  const confirmed: Schemas["ClientArchiveConfirm"][] = [];
+  const requests = setup(async (request, path) => {
+    if (path === "/clients/card-one/archive-preview") {
+      return json({
+        preview_token: confirmed.length ? "replacement-preview" : "initial-preview",
+        meetings_awaiting_outcome: [],
+        meetings_to_delete: confirmed.length
+          ? [{ ...scheduled, starts_at: date + "T16:30:00Z" }]
+          : [scheduled],
+        balance: { amount: "0", currency: "USD" },
+      } satisfies Schemas["ClientArchivePreview"]);
+    }
+    if (path === "/clients/card-one/archive" && request.method === "POST") {
+      confirmed.push(await request.json());
+      return confirmed.length === 1
+        ? json({ code: "conflict" }, 409)
+        : json(client({ status: "archived", archived_at: past }));
+    }
+  });
+  render(view(<ClientArchivePage />));
+  expect(await screen.findByText("25 November · 14:00")).toBeTruthy();
+  fireEvent.click(button("archive.confirm"));
+  expect(await screen.findByRole("alert")).toHaveProperty(
+    "textContent",
+    t("extra.archive_preview_changed"),
+  );
+  expect(await screen.findByText("25 November · 17:30")).toBeTruthy();
+  expect(screen.queryByText("25 November · 14:00")).toBeNull();
+  expect(confirmed).toEqual([{ preview_token: "initial-preview" }]);
+  expect(nav.replace).not.toHaveBeenCalled();
+  fireEvent.click(button("archive.confirm"));
+  await waitFor(() => expect(nav.replace).toHaveBeenCalledExactlyOnceWith(cardHref));
+  expect(confirmed).toEqual([
+    { preview_token: "initial-preview" },
+    { preview_token: "replacement-preview" },
+  ]);
+  expect(calls(requests, "GET", "/account")).toHaveLength(2);
+});
+
+test("blocks confirmation when the server finds a newly ended session", async () => {
+  nav.id = "card-one";
+  setLocation(cardHref + "/archive");
+  let ended = false;
+  const session = meeting();
+  const requests = setup((request, path) => {
+    if (path === "/clients/card-one/archive-preview") {
+      return json({
+        preview_token: ended ? "ended-preview" : "scheduled-preview",
+        meetings_awaiting_outcome: ended ? [session] : [],
+        meetings_to_delete: ended ? [] : [session],
+        balance: { amount: "0", currency: "USD" },
+      } satisfies Schemas["ClientArchivePreview"]);
+    }
+    if (path === "/clients/card-one/archive" && request.method === "POST") {
+      ended = true;
+      return json({ code: "outcomes_pending" }, 409);
+    }
+  });
+  render(view(<ClientArchivePage />));
+  await screen.findByRole("heading", { name: t("archive.planned") });
+  fireEvent.click(button("archive.confirm"));
+  expect(await screen.findByRole("heading", { name: t("archive.outcomes_first") })).toBeTruthy();
+  fireEvent.click(button("archive.confirm"));
+  expect(button("archive.confirm")).toHaveProperty("disabled", true);
+  expect(calls(requests, "POST", "/clients/card-one/archive")).toHaveLength(1);
+});
+
 function openSessionActions(): ReturnType<typeof within> {
   fireEvent.click(button("extra.meeting_actions"));
   return within(screen.getByRole("dialog", { name: t("extra.meeting_actions") }));
 }
+
+// spec:test meeting-card#render-meeting-client-archived-client
+test("opens the archived client from a grey historical meeting and saves only non-financial edits", async () => {
+  const archived = client({ status: "archived", archived_at: past });
+  const original = meeting({
+    status: "completed",
+    client: ref(archived),
+    client_card: archived,
+    actual_duration_minutes: 38,
+    awaiting_outcome: false,
+    invite_url: "https://celmento.com/invite-for-test",
+  });
+  const requests = setup(
+    (request, path) => {
+      if (path === "/meetings/meeting-one" && request.method === "PATCH")
+        return json({ ...original, comment: "A corrected historical comment" });
+    },
+    { meeting: original, cards: [archived] },
+  );
+  setLocation(meetingHref);
+  const viewResult = render(view(<MeetingPage />));
+  const detail = await screen.findByRole("article");
+  expect(detail.getAttribute("data-archived")).toBe("true");
+  const withinDetail = within(detail);
+  expect(withinDetail.queryByRole("link", { name: t("card.call") })).toBeNull();
+  for (const key of ["card.change_outcome", "card.share_link", "card.write_note"] as const) {
+    expect(withinDetail.queryByRole("button", { name: t(key) })).toBeNull();
+  }
+  fireEvent.click(withinDetail.getByRole("button", { name: archived.name }));
+  expect(nav.push).toHaveBeenLastCalledWith(cardHref);
+  nav.id = "card-one";
+  setLocation(cardHref);
+  viewResult.rerender(view(<ClientCardPage />));
+  expect(
+    await screen.findByText(t("client.archived_banner", { date: "10 February" })),
+  ).toBeTruthy();
+  expect(screen.queryByRole("button", { name: t("client.add_payment") })).toBeNull();
+
+  nav.id = "meeting-one";
+  setLocation(meetingHref);
+  viewResult.rerender(view(<MeetingPage />));
+  await screen.findByRole("article");
+  const actions = openSessionActions();
+  expect(actions.queryByRole("button", { name: t("card.reschedule") })).toBeNull();
+  expect(actions.queryByRole("button", { name: t("card.delete") })).toBeNull();
+  fireEvent.click(actions.getByRole("button", { name: t("card.edit") }));
+  const editHref = meetingHref + "/edit";
+  expect(nav.push).toHaveBeenLastCalledWith(editHref);
+
+  setLocation(editHref);
+  viewResult.rerender(view(<EditMeetingPage />));
+  const price = await screen.findByRole("textbox", { name: "Price · RUB" });
+  expect(price).toHaveProperty("value", "1900");
+  expect(price).toHaveProperty("disabled", true);
+  expect(button("form.paid").getAttribute("aria-pressed")).toBe("true");
+  for (const key of ["form.paid", "form.barter", "form.pro_bono"] as const) {
+    expect(button(key)).toHaveProperty("disabled", true);
+  }
+  const dateField = screen.getByLabelText(t("form.date"));
+  fireEvent.change(dateField, { target: { value: date } });
+  expect(await screen.findByRole("alert")).toHaveProperty(
+    "textContent",
+    t("extra.meeting_archived_past"),
+  );
+  expect(button("form.save")).toHaveProperty("disabled", true);
+  fireEvent.change(dateField, { target: { value: "2026-02-10" } });
+  change(t("form.comment"), "A corrected historical comment");
+  fireEvent.click(button("form.save"));
+
+  await waitFor(() => expect(nav.replace).toHaveBeenCalledExactlyOnceWith(meetingHref));
+  const changes = calls(requests, "PATCH", "/meetings/meeting-one");
+  expect(changes).toHaveLength(1);
+  expect(await changes[0]?.json()).toEqual({
+    starts_at: past,
+    duration_minutes: 45,
+    place: "online",
+    meeting_link: defaultLink,
+    comment: "A corrected historical comment",
+    allow_overlap: false,
+  });
+  expect(calls(requests, "DELETE", "/meetings/meeting-one")).toHaveLength(0);
+});
 
 // spec:test meeting-card#show-filled-field-meeting-f03
 // spec:test meeting-card#show-empty-field-meeting-empty

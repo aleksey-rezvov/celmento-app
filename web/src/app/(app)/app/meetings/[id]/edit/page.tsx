@@ -7,6 +7,7 @@ import { MeetingResource, meetingPath } from "@/components/meetings/MeetingScree
 import { editableDraft } from "@/components/meetings/meeting-form-values";
 import { useAccount } from "@/lib/account";
 import { loadDraft } from "@/lib/meeting-draft";
+import { isArchivedClientMeeting } from "@/lib/meeting-display";
 
 function EditMeeting(): ReactElement {
   const { id } = useParams<{ id: string }>();
@@ -17,7 +18,9 @@ function EditMeeting(): ReactElement {
   return (
     <MeetingResource id={id}>
       {(meeting) => {
-        const draft = params.get("resume") === "1" ? loadDraft(account.id, pathname) : null;
+        const archived = isArchivedClientMeeting(meeting);
+        const draft =
+          !archived && params.get("resume") === "1" ? loadDraft(account.id, pathname) : null;
         return (
           // spec:impl meeting-form#open-form-filled-meeting-current
           // spec:impl meeting-reschedule-cancel-delete#open-meeting-form-meeting-fields
@@ -25,7 +28,9 @@ function EditMeeting(): ReactElement {
             key={meeting.id}
             original={meeting}
             initial={draft ?? editableDraft(account, meeting)}
-            focusDate={params.get("reschedule") === "1" && meeting.status === "scheduled"}
+            focusDate={
+              !archived && params.get("reschedule") === "1" && meeting.status === "scheduled"
+            }
             resumed={draft !== null}
             onSaved={(updated) => router.replace(meetingPath(updated.id))}
           />

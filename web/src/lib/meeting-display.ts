@@ -17,6 +17,10 @@ export const meetingStatusLabels = {
 
 type Summary = Pick<Schemas["Meeting"], "type" | "client" | "with_whom">;
 
+export function isArchivedClientMeeting(meeting: Schemas["MeetingDetail"]): boolean {
+  return meeting.client?.archived === true || meeting.client_card?.status === "archived";
+}
+
 export function meetingTitle(meeting: Summary, t: Translate): string {
   if (meeting.client) return meeting.client.name;
   const type = t(meetingTypeLabels[meeting.type]);

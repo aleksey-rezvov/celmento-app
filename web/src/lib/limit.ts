@@ -1,7 +1,6 @@
 import type { Schemas } from "./api/client";
 
 type Plan = Schemas["PlanStatus"];
-type LimitReason = "new_client" | "restore";
 
 export const peoplePath = "/app/people";
 export const newClientPath = peoplePath + "/clients/new";
@@ -13,11 +12,11 @@ export function activeClientLimitReached(plan: Plan): boolean {
 }
 
 export function limitScreenHref(
-  reason: LimitReason,
-  { returnTo, clientName }: { returnTo: string; clientName?: string },
+  ...[reason, target]: ["new_client", { returnTo: string }] | ["restore", { clientId: string }]
 ): string {
-  const query = new URLSearchParams({ reason, returnTo });
-  if (clientName !== undefined) query.set("clientName", clientName);
+  const query = new URLSearchParams({ reason });
+  if (reason === "restore") query.set("client_id", target.clientId);
+  else query.set("returnTo", target.returnTo);
   return "/app/limit?" + query.toString();
 }
 

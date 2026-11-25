@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Body, File, Query, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Body, File, Query, Request, Response
 
 from celmento_api.auth import Database, LeaderAccount
 from celmento_api.errors import AppError, error_responses
@@ -18,8 +18,17 @@ from celmento_api.schemas.clients import (
     ClientUpdate,
     IdempotencyKey,
 )
-from celmento_api.schemas.meetings import ClientMeetingList
+from celmento_api.schemas.meetings import (
+    ClientArchiveConfirm,
+    ClientArchivePreview,
+    ClientMeetingList,
+)
 from celmento_api.services.account_access import lock_account
+from celmento_api.services.archive import (
+    archive_client_card,
+    client_archive_preview,
+    restore_client_card,
+)
 from celmento_api.services.client_requests import (
     client_write_request,
     previous_client,
@@ -133,6 +142,62 @@ async def patch_client(
         leader = await lock_account(session, leader.account_id, no_key_update=True)
     card = await active_client_for_update(session, leader.account_id, client_id)
     await update_client_card(session, card, body.root)
+    result = await client_view(session, card, media_origin(request))
+    await session.commit()
+    return result
+
+
+@router.get(
+    "/{client_id}/archive-preview",
+    operation_id="getClientArchivePreview",
+    summary="Get the data of the archive confirmation screen",
+    response_model=ClientArchivePreview,
+    responses=error_responses(401, 403, 404, 422, 500),
+)
+async def get_archive_preview(
+    request: Request, client_id: UUID, leader: LeaderAccount, session: Database
+) -> ClientArchivePreview:
+    return await client_archive_preview(
+        session, leader, client_id, media_origin(request)
+    )
+
+
+@router.post(
+    "/{client_id}/archive",
+    operation_id="archiveClient",
+    summary="Move a client card to the archive",
+    response_model=ClientCard,
+    responses=error_responses(401, 403, 404, 409, 422, 500),
+)
+async def archive_client(
+    request: Request,
+    client_id: UUID,
+    body: Annotated[ClientArchiveConfirm, Body()],
+    background_tasks: BackgroundTasks,
+    leader: LeaderAccount,
+    session: Database,
+) -> ClientCard:
+    card, emails = await archive_client_card(
+        session, leader, client_id, body.preview_token
+    )
+    result = await client_view(session, card, media_origin(request))
+    await session.commit()
+    for email in emails:
+        background_tasks.add_task(email.send)
+    return result
+
+
+@router.post(
+    "/{client_id}/restore",
+    operation_id="restoreClient",
+    summary="Restore an archived client card",
+    response_model=ClientCard,
+    responses=error_responses(401, 403, 404, 409, 422, 500),
+)
+async def restore_client(
+    request: Request, client_id: UUID, leader: LeaderAccount, session: Database
+) -> ClientCard:
+    card = await restore_client_card(session, leader, client_id)
     result = await client_view(session, card, media_origin(request))
     await session.commit()
     return result

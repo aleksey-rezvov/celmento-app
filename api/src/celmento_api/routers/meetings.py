@@ -3,7 +3,7 @@ from typing import Annotated
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Body, Query, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Body, Query, Request, Response
 
 from celmento_api.auth import Database, LeaderAccount, SignedInAccount
 from celmento_api.errors import error_responses, invalid_request_value
@@ -27,12 +27,13 @@ from celmento_api.services.meeting_views import (
     meeting_detail,
 )
 from celmento_api.services.meetings import (
+    cancel_or_delete_meeting,
     create_meeting,
     meeting_client,
     owned_meeting,
     update_meeting,
 )
-from celmento_api.services.outcomes import delete_meeting, record_outcome
+from celmento_api.services.outcomes import record_outcome
 from celmento_api.services.schedule import calendar_days, date_bounds, meeting_defaults
 from celmento_api.storage import media_origin
 
@@ -156,14 +157,19 @@ async def get_meeting(
 async def patch_meeting(
     request: Request,
     meeting_id: UUID,
+    background_tasks: BackgroundTasks,
     body: Annotated[MeetingUpdate, Body()],
     leader: LeaderAccount,
     session: Database,
 ) -> MeetingDetail:
     origin = media_origin(request)
-    meeting = await update_meeting(session, leader, meeting_id, body.root, origin)
+    meeting, email = await update_meeting(
+        session, leader, meeting_id, body.root, origin
+    )
     result = await meeting_detail(session, meeting, leader, origin, datetime.now(UTC))
     await session.commit()
+    if email is not None:
+        background_tasks.add_task(email.send)
     return result
 
 
@@ -174,10 +180,11 @@ async def patch_meeting(
     status_code=204,
     response_class=Response,
     response_model=None,
-    responses=error_responses(400, 401, 403, 404, 422, 500),
+    responses=error_responses(400, 401, 403, 404, 409, 422, 500),
 )
 async def remove_meeting(
     meeting_id: UUID,
+    background_tasks: BackgroundTasks,
     leader: LeaderAccount,
     session: Database,
     refund: Annotated[bool | None, Query()] = None,
@@ -185,8 +192,10 @@ async def remove_meeting(
     leader = await lock_account(session, leader.account_id, no_key_update=True)
     meeting = await owned_meeting(session, leader.account_id, meeting_id, lock=True)
     card = await meeting_client(session, leader, meeting)
-    await delete_meeting(session, leader, meeting, card, refund)
+    email = await cancel_or_delete_meeting(session, leader, meeting, card, refund)
     await session.commit()
+    if email is not None:
+        background_tasks.add_task(email.send)
     return Response(status_code=204)
 
 

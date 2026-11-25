@@ -19,6 +19,7 @@ type ClientStatus = Schemas["ClientCardStatus"];
 type Plan = Schemas["PlanStatus"];
 
 interface ClientsSectionProps {
+  initialStatus: ClientStatus;
   searchId: string;
   search: string | null;
   onSearch: (value: string) => void;
@@ -39,11 +40,16 @@ function samePlan(left: Plan, right: Plan): boolean {
   );
 }
 
-export function ClientsSection({ searchId, search, onSearch }: ClientsSectionProps): ReactElement {
+export function ClientsSection({
+  initialStatus,
+  searchId,
+  search,
+  onSearch,
+}: ClientsSectionProps): ReactElement {
   const { account, refresh } = useAccount();
   const t = useTranslation();
   // spec:impl client-list#open-clients-section-active-clients
-  const [status, setStatus] = useState<ClientStatus>("active");
+  const [status, setStatus] = useState(initialStatus);
   const [result, setResult] = useState<Result | null>(null);
   const [requestFailure, setRequestFailure] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -128,6 +134,7 @@ export function ClientsSection({ searchId, search, onSearch }: ClientsSectionPro
       {plan && <LimitCounter plan={plan} />}
       {search !== null && <ClientSearch id={searchId} value={search} onChange={onSearch} />}
       {!query && (
+        // spec:impl client-archive-restore#show-archive-list-leader-switches
         <ChoiceChips
           label={t("clients.title")}
           value={status}

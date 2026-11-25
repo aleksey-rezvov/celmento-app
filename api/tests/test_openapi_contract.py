@@ -101,6 +101,12 @@ def test_account_client_payment_and_meeting_request_bodies_are_named() -> None:
         ("/account/photo", "put", "multipart/form-data", "ProfilePhotoUpload"),
         ("/clients", "post", "application/json", "ClientCreate"),
         ("/clients/{client_id}", "patch", "application/json", "ClientUpdate"),
+        (
+            "/clients/{client_id}/archive",
+            "post",
+            "application/json",
+            "ClientArchiveConfirm",
+        ),
         ("/clients/{client_id}/link", "put", "application/json", "ClientLinkByLogin"),
         (
             "/clients/{client_id}/photo",

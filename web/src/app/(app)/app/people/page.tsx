@@ -1,6 +1,7 @@
 "use client";
 
-import { useId, useState, type ReactElement } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useId, useState, type ReactElement } from "react";
 import { NoticeBar } from "@/components/NoticeBar";
 import { ClientSearchToggle } from "@/components/clients/ClientSearch";
 import { ClientsSection } from "@/components/clients/ClientsSection";
@@ -21,11 +22,12 @@ function MySpecialistsSlot(): ReactElement {
   );
 }
 
-export default function People(): ReactElement {
+function PeopleScreen(): ReactElement {
   const { account } = useAccount();
   const t = useTranslation();
   const [search, setSearch] = useState<string | null>(null);
   const searchId = useId();
+  const initialStatus = useSearchParams().get("clients") === "archived" ? "archived" : "active";
 
   return (
     <main>
@@ -46,9 +48,23 @@ export default function People(): ReactElement {
       {/* spec:impl client-leading-activation#show-non-leader-people-tab-only-specialists */}
       {/* spec:impl client-list#show-clients-section-titled-people */}
       {account.activated && (
-        <ClientsSection searchId={searchId} search={search} onSearch={setSearch} />
+        <ClientsSection
+          key={initialStatus}
+          initialStatus={initialStatus}
+          searchId={searchId}
+          search={search}
+          onSearch={setSearch}
+        />
       )}
       <MySpecialistsSlot />
     </main>
+  );
+}
+
+export default function People(): ReactElement {
+  return (
+    <Suspense fallback={<main aria-busy="true" />}>
+      <PeopleScreen />
+    </Suspense>
   );
 }

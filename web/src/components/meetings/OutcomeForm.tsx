@@ -9,7 +9,7 @@ import { formatMoney, formatSessionCount } from "@/lib/format";
 import { useLanguage, useTranslation, type MessageKey } from "@/lib/i18n";
 import { putMeetingOutcome } from "@/lib/meeting-api";
 import type { OutcomeDraft } from "@/lib/meeting-draft";
-import { meetingPerson } from "@/lib/meeting-display";
+import { isArchivedClientMeeting, meetingPerson } from "@/lib/meeting-display";
 import { useCurrentInstant } from "@/lib/schedule-view";
 import { MeetingScreen, meetingPath } from "./MeetingScreen";
 import { OutcomeFields, outcomeInput, outcomeOptions } from "./OutcomeFields";
@@ -57,7 +57,7 @@ export function OutcomeForm({
   const [error, setError] = useState<MessageKey | null>(null);
   const mutual = meeting.type === "mutual_practice";
   const active =
-    meeting.client?.archived !== true && Date.parse(meeting.starts_at) <= now.getTime();
+    !isArchivedClientMeeting(meeting) && Date.parse(meeting.starts_at) <= now.getTime();
   const input = draft ? outcomeInput(draft, meeting.type) : null;
   const title = t("outcome.title", {
     [language === "ru" ? "имя" : "name"]: meetingPerson(meeting, t),

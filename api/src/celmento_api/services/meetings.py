@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from celmento_api.emails import PreparedEmail
 from celmento_api.errors import AppError, invalid_request_value
 from celmento_api.models.account import Account
 from celmento_api.models.client_card import ClientCard
@@ -29,11 +30,13 @@ from celmento_api.schemas.meetings import (
 from celmento_api.services.account_access import lock_account
 from celmento_api.services.clients import owned_client, validate_payment_type
 from celmento_api.services.idempotency import request_fingerprint
+from celmento_api.services.meeting_notifications import prepare_meeting_notification
 from celmento_api.services.meeting_views import own_meeting_view
 from celmento_api.services.outcomes import (
     client_charge,
     correct_client_charge,
     correct_service_expense,
+    delete_meeting,
     record_outcome,
     service_expense,
 )
@@ -149,7 +152,14 @@ async def _apply_form(
         if card_id is None:
             raise invalid_request_value("body", "client_id")
         card = await owned_client(session, leader.account_id, card_id, lock=True)
-        if card.status == ClientCardStatus.ARCHIVED.value:
+        if card.status == ClientCardStatus.ARCHIVED.value and (
+            meeting.status == MeetingStatus.SCHEDULED.value
+            or meeting.starts_at > now
+            or start > now
+            or ("price" in body and Decimal(body["price"]) != meeting.price)
+            or ("currency" in body and body["currency"] != meeting.currency)
+            or ("payment_type" in body and body["payment_type"] != meeting.payment_type)
+        ):
             raise AppError(409, ErrorCode.MEETING_CLIENT_ARCHIVED)
         if body.get("with_whom") is not None:
             raise invalid_request_value("body", "with_whom")
@@ -278,14 +288,41 @@ async def update_meeting(
     meeting_id: UUID,
     body: MeetingUpdateFields,
     origin: str,
-) -> Meeting:
+) -> tuple[Meeting, PreparedEmail | None]:
     leader = await lock_account(session, leader.account_id, no_key_update=True)
     meeting = await owned_meeting(session, leader.account_id, meeting_id, lock=True)
     previous_charge = client_charge(meeting)
     previous_expense = service_expense(meeting)
+    previous_start = meeting.starts_at
+    previous_card_id = meeting.client_card_id
     card = await _apply_form(
         session, leader, meeting, body, origin, datetime.now(UTC), meeting.meeting_id
     )
     await correct_client_charge(session, leader, meeting, card, previous_charge)
     correct_service_expense(session, meeting, previous_expense)
-    return meeting
+    # spec:impl client-meeting-notifications#notify-meeting-change-other-reschedule
+    if (
+        meeting.status == MeetingStatus.SCHEDULED.value
+        and card is not None
+        and previous_card_id == card.client_card_id
+        and previous_start != meeting.starts_at
+    ):
+        # spec:impl client-meeting-notifications#notify-client-after-leader-saves
+        return meeting, await prepare_meeting_notification(
+            session, leader, card, meeting, previous_starts_at=previous_start
+        )
+    return meeting, None
+
+
+async def cancel_or_delete_meeting(
+    session: AsyncSession,
+    leader: Account,
+    meeting: Meeting,
+    card: ClientCard | None,
+    refund: bool | None,
+) -> PreparedEmail | None:
+    await delete_meeting(session, leader, meeting, card, refund)
+    # spec:impl client-meeting-notifications#notify-client-after-leader-confirms
+    if meeting.status == MeetingStatus.SCHEDULED.value and card is not None:
+        return await prepare_meeting_notification(session, leader, card, meeting)
+    return None
