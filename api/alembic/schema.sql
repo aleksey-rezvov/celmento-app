@@ -1,4 +1,4 @@
--- Alembic revision: 0002
+-- Alembic revision: 0003
 --
 -- PostgreSQL database dump
 --
@@ -69,6 +69,101 @@ CREATE TABLE public.account (
 
 CREATE TABLE public.alembic_version (
     version_num character varying(32) NOT NULL
+);
+
+
+--
+-- Name: balance_operation; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.balance_operation (
+    balance_operation_id uuid DEFAULT uuidv7() NOT NULL,
+    client_card_id uuid NOT NULL,
+    kind text NOT NULL,
+    amount numeric(19,4) NOT NULL,
+    currency text NOT NULL,
+    currency_version integer NOT NULL,
+    date date NOT NULL,
+    comment text,
+    meeting_id uuid,
+    created_by_system boolean NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT balance_operation_amount_finite CHECK (((amount > '-Infinity'::numeric) AND (amount < 'Infinity'::numeric))),
+    CONSTRAINT balance_operation_currency_known CHECK ((currency = ANY (ARRAY['RUB'::text, 'EUR'::text, 'USD'::text]))),
+    CONSTRAINT balance_operation_currency_version_valid CHECK ((currency_version >= 1)),
+    CONSTRAINT balance_operation_kind_known CHECK ((kind = ANY (ARRAY['payment'::text, 'session_charge'::text, 'missed_charge'::text, 'refund_to_balance'::text, 'deleted_meeting_charge'::text, 'correction'::text]))),
+    CONSTRAINT balance_operation_payment_valid CHECK ((((kind <> 'payment'::text) AND created_by_system) OR ((kind = 'payment'::text) AND (NOT created_by_system) AND (amount > (0)::numeric) AND (meeting_id IS NULL))))
+);
+
+
+--
+-- Name: client_card; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.client_card (
+    client_card_id uuid DEFAULT uuidv7() NOT NULL,
+    leader_account_id uuid NOT NULL,
+    name text NOT NULL,
+    photo_key text,
+    phone text,
+    email text,
+    telegram text,
+    whatsapp text,
+    other_contact text,
+    preferred_channel text,
+    self_given_email text,
+    rate numeric(19,4),
+    currency text NOT NULL,
+    currency_version integer DEFAULT 1 NOT NULL,
+    payment_type text NOT NULL,
+    request text,
+    goals text,
+    info text,
+    hypotheses text,
+    status text DEFAULT 'active'::text NOT NULL,
+    archived_at timestamp with time zone,
+    linked_account_id uuid,
+    link_method text,
+    unlinked_by_client_at timestamp with time zone,
+    auto_link_blocked boolean DEFAULT false NOT NULL,
+    is_new boolean DEFAULT false NOT NULL,
+    source text NOT NULL,
+    guest_language text,
+    guest_time_zone text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT client_card_archive_time_matches_status CHECK (((status = 'archived'::text) = (archived_at IS NOT NULL))),
+    CONSTRAINT client_card_currency_known CHECK ((currency = ANY (ARRAY['RUB'::text, 'EUR'::text, 'USD'::text]))),
+    CONSTRAINT client_card_currency_version_valid CHECK ((currency_version >= 1)),
+    CONSTRAINT client_card_guest_language_known CHECK ((guest_language = ANY (ARRAY['ru'::text, 'en'::text]))),
+    CONSTRAINT client_card_link_excludes_leader CHECK ((linked_account_id IS DISTINCT FROM leader_account_id)),
+    CONSTRAINT client_card_link_has_method CHECK (((linked_account_id IS NULL) = (link_method IS NULL))),
+    CONSTRAINT client_card_link_method_known CHECK ((link_method = ANY (ARRAY['auto'::text, 'login'::text]))),
+    CONSTRAINT client_card_name_nonempty CHECK ((length(btrim(name)) > 0)),
+    CONSTRAINT client_card_new_only_from_booking CHECK (((NOT is_new) OR (source = 'booked_via_link'::text))),
+    CONSTRAINT client_card_paid_rate_valid CHECK (((payment_type <> 'paid'::text) OR (rate IS NULL) OR (rate > (0)::numeric))),
+    CONSTRAINT client_card_payment_type_known CHECK ((payment_type = ANY (ARRAY['paid'::text, 'pro_bono'::text, 'barter'::text]))),
+    CONSTRAINT client_card_preferred_channel_known CHECK ((preferred_channel = ANY (ARRAY['phone'::text, 'email'::text, 'telegram'::text, 'whatsapp'::text, 'other'::text]))),
+    CONSTRAINT client_card_rate_valid CHECK (((rate >= (0)::numeric) AND (rate < 'Infinity'::numeric))),
+    CONSTRAINT client_card_self_given_email_normalized CHECK (((self_given_email <> ''::text) AND (self_given_email = lower(btrim(self_given_email))))),
+    CONSTRAINT client_card_source_known CHECK ((source = ANY (ARRAY['created'::text, 'booked_via_link'::text]))),
+    CONSTRAINT client_card_status_known CHECK ((status = ANY (ARRAY['active'::text, 'archived'::text])))
+);
+
+
+--
+-- Name: client_request_receipt; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.client_request_receipt (
+    client_request_receipt_id uuid DEFAULT uuidv7() NOT NULL,
+    leader_account_id uuid NOT NULL,
+    client_card_id uuid NOT NULL,
+    operation text NOT NULL,
+    idempotency_key uuid NOT NULL,
+    request_digest text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT client_request_receipt_digest_valid CHECK ((request_digest ~ '^[0-9a-f]{64}$'::text)),
+    CONSTRAINT client_request_receipt_operation_known CHECK ((operation = ANY (ARRAY['create_client'::text, 'create_client_payment'::text])))
 );
 
 
@@ -191,6 +286,18 @@ CREATE TABLE public.sign_in_ticket (
 
 
 --
+-- Name: subscription; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.subscription (
+    account_id uuid NOT NULL,
+    until date NOT NULL,
+    granted_by text NOT NULL,
+    granted_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
 -- Name: working_day; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -244,6 +351,38 @@ ALTER TABLE ONLY public.account
 
 ALTER TABLE ONLY public.alembic_version
     ADD CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num);
+
+
+--
+-- Name: balance_operation balance_operation_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.balance_operation
+    ADD CONSTRAINT balance_operation_pkey PRIMARY KEY (balance_operation_id);
+
+
+--
+-- Name: client_card client_card_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.client_card
+    ADD CONSTRAINT client_card_pkey PRIMARY KEY (client_card_id);
+
+
+--
+-- Name: client_request_receipt client_request_receipt_key_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.client_request_receipt
+    ADD CONSTRAINT client_request_receipt_key_unique UNIQUE (leader_account_id, operation, idempotency_key);
+
+
+--
+-- Name: client_request_receipt client_request_receipt_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.client_request_receipt
+    ADD CONSTRAINT client_request_receipt_pkey PRIMARY KEY (client_request_receipt_id);
 
 
 --
@@ -327,11 +466,26 @@ ALTER TABLE ONLY public.sign_in_ticket
 
 
 --
+-- Name: subscription subscription_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.subscription
+    ADD CONSTRAINT subscription_pkey PRIMARY KEY (account_id);
+
+
+--
 -- Name: working_day working_day_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.working_day
     ADD CONSTRAINT working_day_pkey PRIMARY KEY (account_id, weekday);
+
+
+--
+-- Name: client_card_leader_linked_account_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX client_card_leader_linked_account_unique ON public.client_card USING btree (leader_account_id, linked_account_id) WHERE (linked_account_id IS NOT NULL);
 
 
 --
@@ -346,6 +500,48 @@ CREATE INDEX ix_acceptance_account_id ON public.acceptance USING btree (account_
 --
 
 CREATE INDEX ix_acceptance_meeting_id ON public.acceptance USING btree (meeting_id);
+
+
+--
+-- Name: ix_balance_operation_client_card_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_balance_operation_client_card_id ON public.balance_operation USING btree (client_card_id);
+
+
+--
+-- Name: ix_balance_operation_meeting_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_balance_operation_meeting_id ON public.balance_operation USING btree (meeting_id);
+
+
+--
+-- Name: ix_client_card_leader_account_id_self_given_email; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_client_card_leader_account_id_self_given_email ON public.client_card USING btree (leader_account_id, self_given_email);
+
+
+--
+-- Name: ix_client_card_linked_account_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_client_card_linked_account_id ON public.client_card USING btree (linked_account_id);
+
+
+--
+-- Name: ix_client_card_self_given_email; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_client_card_self_given_email ON public.client_card USING btree (self_given_email);
+
+
+--
+-- Name: ix_client_request_receipt_client_card_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_client_request_receipt_client_card_id ON public.client_request_receipt USING btree (client_card_id);
 
 
 --
@@ -392,6 +588,46 @@ ALTER TABLE ONLY public.acceptance
 
 
 --
+-- Name: balance_operation balance_operation_client_card_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.balance_operation
+    ADD CONSTRAINT balance_operation_client_card_id_fkey FOREIGN KEY (client_card_id) REFERENCES public.client_card(client_card_id) ON DELETE RESTRICT;
+
+
+--
+-- Name: client_card client_card_leader_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.client_card
+    ADD CONSTRAINT client_card_leader_account_id_fkey FOREIGN KEY (leader_account_id) REFERENCES public.account(account_id) ON DELETE RESTRICT;
+
+
+--
+-- Name: client_card client_card_linked_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.client_card
+    ADD CONSTRAINT client_card_linked_account_id_fkey FOREIGN KEY (linked_account_id) REFERENCES public.account(account_id) ON DELETE RESTRICT;
+
+
+--
+-- Name: client_request_receipt client_request_receipt_client_card_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.client_request_receipt
+    ADD CONSTRAINT client_request_receipt_client_card_id_fkey FOREIGN KEY (client_card_id) REFERENCES public.client_card(client_card_id) ON DELETE RESTRICT;
+
+
+--
+-- Name: client_request_receipt client_request_receipt_leader_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.client_request_receipt
+    ADD CONSTRAINT client_request_receipt_leader_account_id_fkey FOREIGN KEY (leader_account_id) REFERENCES public.account(account_id) ON DELETE RESTRICT;
+
+
+--
 -- Name: feedback_message feedback_message_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -429,6 +665,14 @@ ALTER TABLE ONLY public.session
 
 ALTER TABLE ONLY public.sign_in_ticket
     ADD CONSTRAINT sign_in_ticket_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.account(account_id) ON DELETE CASCADE;
+
+
+--
+-- Name: subscription subscription_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.subscription
+    ADD CONSTRAINT subscription_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.account(account_id) ON DELETE CASCADE;
 
 
 --

@@ -23,6 +23,7 @@ from celmento_api.services.legal import (
     record_acceptances,
     require_consents,
 )
+from celmento_api.services.links import auto_link_for_account
 from celmento_api.services.logins import require_available_login
 from celmento_api.services.registration_package import (
     DeviceProofPurpose,
@@ -111,6 +112,7 @@ async def finish_registration(
     )
     if activation is not None:
         record_activation(session, account, activation)
+    await auto_link_for_account(session, account)
     if local_registration:
         return FinishRegistrationResult(
             outcome=FinishOutcome.SESSION,

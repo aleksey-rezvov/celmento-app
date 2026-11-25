@@ -38,7 +38,7 @@ Start the API from `api/`.
 uv sync --locked
 uv run --locked alembic upgrade head
 uv run --locked python -m celmento_api.seed --draft-documents
-uv run uvicorn celmento_api.main:app --host 127.0.0.1 --port 8000
+uv run uvicorn celmento_api.main:app --host 127.0.0.1 --port 8000 --no-access-log
 ```
 
 The API schema is at `http://127.0.0.1:8000/api/v1/openapi.json`.

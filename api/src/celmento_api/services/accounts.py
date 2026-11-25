@@ -30,6 +30,7 @@ from celmento_api.schemas.account import (
     WorkingDay,
 )
 from celmento_api.schemas.documents import AcceptanceRecord
+from celmento_api.schemas.money import format_amount
 from celmento_api.services.logins import require_available_login
 from celmento_api.services.plan_status import plan_status
 from celmento_api.storage import photo_url
@@ -42,19 +43,7 @@ DEFAULT_WORK_END: time = time(18)
 DAYS_OFF: frozenset[Weekday] = frozenset({Weekday.SAT, Weekday.SUN})
 
 
-async def lock_account(session: AsyncSession, account_id: UUID) -> Account:
-    account = await session.scalar(
-        select(Account)
-        .where(Account.account_id == account_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if account is None:
-        raise AppError(401, ErrorCode.UNAUTHORIZED)
-    return account
-
-
-async def _leader_record(session: AsyncSession, account_id: UUID) -> LeaderRecord:
+async def leader_record(session: AsyncSession, account_id: UUID) -> LeaderRecord:
     profile = await session.get(LeaderRecord, account_id)
     if profile is None:
         raise AppError(500, ErrorCode.INTERNAL_ERROR)
@@ -88,15 +77,8 @@ def _working_day_view(weekday: Weekday, row: WorkingDayRecord | None) -> Working
     )
 
 
-def _decimal_amount(amount: Decimal | None) -> str | None:
-    if amount is None:
-        return None
-    text = format(amount, "f")
-    return text.rstrip("0").rstrip(".") if "." in text else text
-
-
 async def leader_view(session: AsyncSession, account: Account) -> LeaderProfile:
-    profile = await _leader_record(session, account.account_id)
+    profile = await leader_record(session, account.account_id)
     days = await _working_days(session, account.account_id)
     return LeaderProfile(
         specializations=[Specialization(item) for item in profile.specializations],
@@ -114,7 +96,9 @@ async def leader_view(session: AsyncSession, account: Account) -> LeaderProfile:
         or DEFAULT_SESSION_DURATION,
         session_format=SessionFormat(profile.session_format or DEFAULT_SESSION_FORMAT),
         default_meeting_link=profile.default_meeting_link,
-        default_rate=_decimal_amount(profile.default_rate),
+        default_rate=format_amount(profile.default_rate)
+        if profile.default_rate is not None
+        else None,
         default_currency=Currency(profile.default_currency or DEFAULT_CURRENCY),
         plan=await plan_status(session, account),
     )
@@ -266,7 +250,7 @@ async def update_account(
         else account.login
     )
     profile = (
-        await _leader_record(session, account.account_id)
+        await leader_record(session, account.account_id)
         if account.activated_at is not None
         else None
     )
