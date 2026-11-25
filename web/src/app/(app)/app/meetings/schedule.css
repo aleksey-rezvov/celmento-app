@@ -1,0 +1,434 @@
+.shell-content:has(.schedule-page) {
+  padding-block-end: calc(var(--shell-dock-height) + 1.25rem);
+}
+
+.schedule-page {
+  --schedule-hour: 3.25rem;
+  display: flex;
+  flex-direction: column;
+  block-size: calc(
+    100dvh - max(2.75rem, env(safe-area-inset-top)) - var(--shell-dock-height) - 1.25rem
+  );
+  min-block-size: 26rem;
+}
+
+.schedule-page .shell-header {
+  margin-block-end: 0.625rem;
+}
+
+.schedule-page .shell-header-actions {
+  margin-block-end: 0.125rem;
+}
+
+.schedule-date-subtitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-height: 2.75rem;
+  text-align: start;
+  cursor: pointer;
+}
+
+.schedule-date-subtitle span {
+  font-family: var(--font-body);
+  font-size: 1.125rem;
+}
+
+.schedule-pending-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.625rem;
+  min-height: 2.75rem;
+  margin-block-end: 0.625rem;
+  padding: 0.625rem 0.875rem;
+  border-radius: 1rem;
+  color: #1756a4;
+  background: #dcecff;
+  font-weight: 650;
+}
+
+.schedule-day-navigation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-block-end: 0.375rem;
+}
+
+.schedule-scroll {
+  min-block-size: 0;
+  flex: 1 1 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-width: thin;
+}
+
+.schedule-feed-scroll {
+  overflow-anchor: none;
+}
+
+.schedule-feed-row {
+  display: grid;
+  grid-template-columns: 2.75rem minmax(0, 1fr);
+  align-items: start;
+  gap: 0.5rem;
+  padding-block-end: 0.625rem;
+}
+
+.schedule-feed-date {
+  display: grid;
+  justify-items: center;
+  gap: 0.25rem;
+  min-block-size: 3.25rem;
+  padding: 0.25rem;
+  color: var(--color-secondary);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.schedule-feed-number {
+  display: grid;
+  place-items: center;
+  width: 1.875rem;
+  height: 1.875rem;
+  border-radius: 50%;
+  color: var(--color-text);
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.schedule-feed-date[aria-current="date"] .schedule-feed-number,
+.schedule-calendar-day[aria-current="date"] {
+  background: var(--color-accent);
+  color: white;
+}
+
+.schedule-feed-cards {
+  display: grid;
+  gap: 0.375rem;
+}
+
+.schedule-feed-cards .shell-empty {
+  padding-block: 0.125rem 1rem;
+}
+
+.schedule-week {
+  margin: 0.25rem 0 0.625rem;
+  color: var(--color-secondary);
+  font-size: 0.75rem;
+  font-variant: all-small-caps;
+  font-weight: 700;
+  letter-spacing: 0.025em;
+}
+
+.schedule-edge {
+  display: block;
+  min-height: 2.75rem;
+  margin-inline: auto;
+  padding-inline: 0.625rem;
+  color: #1756a4;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.schedule-edge:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.schedule-day-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-block-size: 0;
+  touch-action: pan-y;
+}
+
+.schedule-day-empty .shell-empty {
+  padding-block: 0 0.625rem;
+  gap: 0.375rem;
+}
+
+.schedule-day-empty .shell-empty > :first-child {
+  max-inline-size: min(200px, 19dvh);
+}
+
+.schedule-day-track {
+  position: relative;
+  min-height: calc(var(--schedule-hour) * 24);
+}
+
+.schedule-hour-scale > * {
+  display: flex;
+  align-items: flex-start;
+  width: 100%;
+  height: var(--schedule-hour);
+  padding: 0.375rem 0.25rem;
+  border-block-start: 1px solid #ded6d1;
+  color: var(--color-secondary);
+  font-size: 0.75rem;
+}
+
+.schedule-hour-scale button {
+  text-align: start;
+  cursor: pointer;
+}
+
+.schedule-hour-scale button[aria-pressed="true"] {
+  color: #1756a4;
+  font-weight: 700;
+}
+
+.schedule-blocks {
+  position: absolute;
+  inset: 0 0.375rem 0 3.25rem;
+  pointer-events: none;
+}
+
+.schedule-meeting {
+  --meeting-surface: var(--color-meeting-client-session);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.375rem;
+  padding: 0.5rem 0.625rem;
+  border-radius: 0.875rem;
+  border-inline-start: 4px solid color-mix(in srgb, var(--meeting-surface), #252632 23%);
+  color: var(--color-text);
+  background: var(--meeting-surface);
+  text-align: start;
+  cursor: pointer;
+}
+
+.schedule-meeting[data-type="personal_therapy"] {
+  --meeting-surface: var(--color-meeting-personal-therapy);
+}
+.schedule-meeting[data-type="supervision"] {
+  --meeting-surface: var(--color-meeting-supervision);
+}
+.schedule-meeting[data-type="mutual_practice"] {
+  --meeting-surface: var(--color-meeting-mutual-practice);
+}
+.schedule-meeting[data-type="training"] {
+  --meeting-surface: var(--color-meeting-training);
+}
+.schedule-meeting[data-archived="true"] {
+  --meeting-surface: #e4e4e6;
+  color: var(--color-secondary);
+}
+
+.schedule-meeting[data-status="not_taken_place"] {
+  background: color-mix(in srgb, var(--meeting-surface), #fff 72%);
+}
+
+.schedule-feed-card {
+  width: 100%;
+  min-height: 3rem;
+}
+
+.schedule-meeting-content {
+  display: grid;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.schedule-meeting-time,
+.schedule-meeting-place {
+  font-size: 0.8rem;
+}
+
+.schedule-time-hint {
+  color: #4b4b52;
+}
+
+.schedule-meeting-name {
+  font-size: 0.925rem;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.schedule-completed {
+  margin-inline-start: 0.375rem;
+  color: #0b6534;
+}
+
+.schedule-outcome-badge,
+.schedule-create-in-hour {
+  justify-self: start;
+  border-radius: 1rem;
+  padding: 0.125rem 0.5rem;
+  background: var(--color-accent);
+  color: white;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.schedule-day-block {
+  position: absolute;
+  min-width: 0;
+  padding-block: 0;
+  overflow: hidden;
+  pointer-events: auto;
+}
+
+.schedule-day-block .schedule-meeting-content {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.25rem;
+  flex: 1;
+}
+
+.schedule-day-block .schedule-meeting-time {
+  white-space: nowrap;
+  font-size: 0.7rem;
+}
+
+.schedule-day-block .schedule-meeting-name {
+  font-size: 0.75rem;
+}
+
+.schedule-day-block .schedule-outcome-badge {
+  grid-column: 1 / -1;
+}
+
+.schedule-hour-selection {
+  position: absolute;
+  inset-inline: 0;
+  border: 2px solid var(--color-accent);
+  background: rgb(45 114 217 / 9%);
+  border-radius: 0.875rem;
+}
+
+.schedule-create-in-hour {
+  position: absolute;
+  z-index: 1;
+  inset-inline-end: 0.375rem;
+  inset-block-end: -0.4rem;
+  min-height: 2rem;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.schedule-current-time {
+  position: relative;
+  height: 1.125rem;
+  display: flex;
+  align-items: center;
+  color: white;
+  pointer-events: none;
+}
+
+.schedule-current-time[data-positioned="true"] {
+  position: absolute;
+  inset-inline: 0;
+  height: 0;
+  z-index: 2;
+}
+
+.schedule-current-time::before {
+  position: absolute;
+  inset-inline: 0;
+  width: 100%;
+  height: 2px;
+  background: #b92235;
+  content: "";
+}
+
+.schedule-current-time time {
+  position: relative;
+  border-radius: 1rem;
+  padding: 0.0625rem 0.3125rem;
+  background: #b92235;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.schedule-calendar-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-block-end: 0.375rem;
+  font-weight: 650;
+}
+
+.schedule-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  justify-items: center;
+  gap: 0.125rem;
+}
+
+.schedule-calendar-weekday {
+  color: var(--color-secondary);
+  font-size: 0.75rem;
+}
+
+.schedule-calendar-day {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: min(100%, 2.75rem);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.schedule-calendar-day[aria-pressed="true"] {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+.schedule-calendar-dot {
+  position: absolute;
+  inset-block-end: 0.375rem;
+  width: 0.25rem;
+  height: 0.25rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.schedule-pending-list {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0;
+  list-style: none;
+}
+
+.schedule-pending-row {
+  display: grid;
+  gap: 0.625rem;
+  border-radius: 1rem;
+  padding: 0.875rem;
+  background: var(--color-card);
+}
+
+.schedule-pending-detail {
+  display: grid;
+  gap: 0.125rem;
+}
+
+.schedule-pending-detail span {
+  color: var(--color-secondary);
+  font-size: 0.82rem;
+}
+
+.schedule-pending-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+
+.schedule-error {
+  margin-block: 0.5rem;
+  color: #a4243b;
+  font-size: 0.875rem;
+}
+
+.schedule-link {
+  color: #1756a4;
+  text-decoration: underline;
+  cursor: pointer;
+}

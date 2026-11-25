@@ -2,11 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState, type ReactElement } from "react";
+import type { ReactElement } from "react";
 import { useAccount } from "@/lib/account";
 import { formatDate } from "@/lib/format";
 import { useTranslation, type MessageKey } from "@/lib/i18n";
 import { newClientHref, newClientPath } from "@/lib/limit";
+import { meetingCreationHref, useCurrentInstant, useMeetingCreationDay } from "@/lib/schedule-view";
+import { zonedDay } from "@/lib/zoned-date";
 import { FloatingAction } from "./FloatingAction";
 import { useAppNavigation } from "./navigation";
 
@@ -59,27 +61,12 @@ export function BottomMenu({ activated }: BottomMenuProps): ReactElement {
   const pathname = usePathname();
   const navigate = useAppNavigation();
   const t = useTranslation();
-  const [now, setNow] = useState(() => new Date().toISOString());
-
-  useEffect(() => {
-    let timer: number;
-    function schedule(): void {
-      timer = window.setTimeout(
-        () => {
-          setNow(new Date().toISOString());
-          schedule();
-        },
-        60_000 - (Date.now() % 60_000),
-      );
-    }
-
-    schedule();
-    return () => window.clearTimeout(timer);
-  }, []);
+  const now = useCurrentInstant();
+  const creationDay = useMeetingCreationDay() ?? zonedDay(now, account.time_zone);
 
   // spec:impl mobile-app-shell#label-meetings-tab-bottom-menu
   // spec:impl schedule-date-navigation#label-meetings-tab-bottom-menu
-  const today = formatDate(now, account.time_zone, account.language);
+  const today = formatDate(now.toISOString(), account.time_zone, account.language);
   // spec:impl mobile-app-shell#show-leader-one-bottom-menu
   // spec:impl mobile-app-shell#show-non-leader-bottom-menu-without-records
   // spec:impl mobile-app-shell#add-records-tab-bottom-menu
@@ -128,11 +115,18 @@ export function BottomMenu({ activated }: BottomMenuProps): ReactElement {
                 <span>{label}</span>
               </Link>
               {/* spec:impl client-list#open-client-creation-form-floating */}
+              {/* spec:impl meeting-form#open-screen-3-4-meetings-tab */}
               {action && (
                 <FloatingAction
-                  href={tab.id === "people" ? newClientHref(account.leader?.plan) : action.href}
+                  href={
+                    tab.id === "people"
+                      ? newClientHref(account.leader?.plan)
+                      : tab.id === "meetings"
+                        ? meetingCreationHref(creationDay)
+                        : action.href
+                  }
                   labelKey={action.label}
-                  disabled={tab.id !== "people"}
+                  disabled={tab.id === "notes"}
                 />
               )}
             </li>
