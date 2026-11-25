@@ -1,0 +1,327 @@
+.shell {
+  --shell-dock-height: calc(4.75rem + env(safe-area-inset-bottom));
+  --shell-pale-blue: #cde3fc;
+  --shell-soft-blue: #e6f0fe;
+  --shell-danger: #a4243b;
+  --shell-profile-button-offset: 0.375;
+  min-height: 100dvh;
+}
+
+.shell[data-activated="true"] {
+  --shell-profile-button-offset: 0.4;
+}
+
+.shell-content {
+  padding: max(2.75rem, env(safe-area-inset-top)) 1rem calc(var(--shell-dock-height) + 3.5rem);
+}
+
+.shell-header {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-block-end: 1rem;
+}
+
+.shell-header-title {
+  flex: 1;
+  min-width: min-content;
+}
+
+.shell-header h1,
+.shell-sheet h2 {
+  font-family: var(--font-title);
+  font-weight: 700;
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+}
+
+.shell-header h1 {
+  font-size: 2.35rem;
+}
+
+.shell-header-subtitle {
+  color: var(--color-accent);
+  font-family: var(--font-title);
+  font-size: 1.5rem;
+  line-height: 1.2;
+}
+
+.shell-header-actions {
+  display: flex;
+  gap: 0.375rem;
+}
+
+.shell-dock {
+  position: fixed;
+  z-index: 3;
+  inset-inline-start: 50%;
+  inset-block-end: 0;
+  width: min(100%, var(--app-width));
+  min-height: var(--shell-dock-height);
+  transform: translateX(-50%);
+  border-radius: 1.5rem 1.5rem 0 0;
+  padding: 0.375rem 0.375rem calc(0.375rem + env(safe-area-inset-bottom));
+  background: var(--color-card);
+  box-shadow: 0 -0.125rem 0.75rem rgb(36 34 42 / 6%);
+}
+
+.shell-tabs {
+  display: flex;
+  gap: 0.125rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.shell-tab-slot {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.shell-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  min-height: 3.75rem;
+  border-radius: 1rem;
+  padding: 0.25rem 0.0625rem;
+  color: var(--color-text);
+  font-size: 0.73rem;
+  font-weight: 600;
+  line-height: 1.15;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.shell-tab[aria-current="page"] {
+  background: var(--shell-pale-blue);
+  color: #173d70;
+}
+
+.shell-tab-icon {
+  flex: 0 0 auto;
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+.shell-floating-action {
+  position: fixed;
+  z-index: 4;
+  inset-inline-start: calc(50% + min(100vw, var(--app-width)) * var(--shell-profile-button-offset));
+  inset-block-end: calc(var(--shell-dock-height) - 1rem);
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: var(--color-accent);
+  color: white;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 0.125rem 0.5rem rgb(36 34 42 / 18%);
+}
+
+.shell-tab-slot > .shell-floating-action {
+  position: absolute;
+  inset-inline-start: 50%;
+  inset-block: -1.75rem auto;
+}
+
+.shell-floating-action:disabled {
+  opacity: 0.72;
+  cursor: default;
+}
+
+.shell-icon-button {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 50%;
+  background: var(--color-card);
+  color: var(--color-text);
+  font-size: 1.375rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.shell-primary,
+.shell-secondary,
+.shell-destructive,
+.shell-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  border-radius: 1.5rem;
+  padding: 0.625rem 1rem;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+  cursor: pointer;
+}
+
+.shell-primary,
+.shell-chip[aria-pressed="true"] {
+  background: var(--color-accent);
+  color: white;
+}
+
+.shell-secondary,
+.shell-chip {
+  background: var(--shell-soft-blue, #e6f0fe);
+  color: #1756a4;
+}
+
+.shell-destructive {
+  background: #f9e9ec;
+  color: var(--shell-danger);
+}
+
+.shell-chip:disabled,
+.shell-icon-button:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.shell-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+
+.shell-field-group {
+  overflow: hidden;
+  border-radius: 1rem;
+  background: #f0f0f1;
+}
+
+.shell-field-group > * + * {
+  border-top: 1px solid #e6e6e7;
+}
+
+.shell-empty {
+  display: grid;
+  justify-items: center;
+  gap: 0.75rem;
+  margin-inline: auto;
+  padding: clamp(0.5rem, 5dvh, 3rem) 0 1.5rem;
+  text-align: center;
+}
+
+.shell-empty p {
+  max-width: 28ch;
+  margin-inline: auto;
+  color: var(--color-secondary);
+}
+
+.shell-people-section h2 {
+  font-size: 1.125rem;
+  font-weight: 700;
+}
+
+.shell-account-error {
+  display: grid;
+  justify-items: start;
+  gap: 1rem;
+  padding: 3rem 1rem;
+}
+
+.shell-sheet {
+  position: fixed;
+  inset: auto 0 0;
+  width: min(100%, var(--app-width));
+  max-height: 90dvh;
+  margin-inline: auto;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 0;
+  border-radius: 1.5rem 1.5rem 0 0;
+  background: var(--color-card);
+  color: var(--color-text);
+}
+
+.shell-sheet::backdrop {
+  background: rgb(36 34 42 / 36%);
+}
+
+body:has(.shell-sheet[open]) {
+  overflow: hidden;
+}
+
+.shell-sheet-content {
+  padding: 1.25rem 1rem calc(1rem + env(safe-area-inset-bottom));
+}
+
+.shell-sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-block-end: 0.75rem;
+}
+
+.shell-sheet h2 {
+  font-size: 1.65rem;
+}
+
+.shell-sheet-text {
+  margin-block-end: 1.25rem;
+  color: var(--color-secondary);
+}
+
+.shell-sheet-actions {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.shell-notices,
+.shell-notice-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.shell-notices {
+  margin-block-end: 1rem;
+}
+
+.shell-notice {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.25rem;
+  padding: 0.75rem 0.375rem 0.75rem 1rem;
+  border-radius: 1rem;
+  background: var(--color-card);
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.shell-notice .shell-icon-button {
+  margin-block-start: -0.375rem;
+  color: var(--color-secondary);
+}
+
+.shell-notice-name {
+  margin-block-start: 0.25rem;
+  color: var(--color-secondary);
+}
+
+.shell-notice-action {
+  min-height: 2.75rem;
+  color: #1756a4;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.shell-notice-error {
+  color: var(--shell-danger);
+  font-size: 0.9rem;
+}

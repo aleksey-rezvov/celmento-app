@@ -38,11 +38,13 @@ export function zoneLabel(timeZone: string, at: Date, language: Language): strin
     .formatToParts(at)
     .find(({ type }) => type === "timeZoneName")
     ?.value.replace("GMT", "UTC");
-  const ianaCity = (timeZone.split("/").at(-1) ?? timeZone).replaceAll("_", " ");
-  const city = language === "ru" ? (russianCityNames[timeZone] ?? ianaCity) : ianaCity;
-
   // spec:impl time-zone-handling#zone-label-city-offset
-  return city + " (" + (offset ?? "UTC") + ")";
+  return zoneCity(timeZone, language) + " (" + (offset ?? "UTC") + ")";
+}
+
+export function zoneCity(timeZone: string, language: Language): string {
+  const ianaCity = (timeZone.split("/").at(-1) ?? timeZone).replaceAll("_", " ");
+  return language === "ru" ? (russianCityNames[timeZone] ?? ianaCity) : ianaCity;
 }
 
 export function otherPartyHint(
