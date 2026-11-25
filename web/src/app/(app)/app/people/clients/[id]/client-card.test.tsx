@@ -154,6 +154,7 @@ function setupApi(
       if (path === "/account") return json(account);
       if (path === "/clients/card-one" && request.method === "GET") return json(current);
       if (path === "/clients/card-one/balance") return json(history);
+      if (path === "/clients/card-one/meetings") return json({ upcoming: [], past: [] });
       if (path === "/clients/card-one" && request.method === "PATCH") {
         const changes: Schemas["ClientUpdate"] = await request.json();
         current = { ...current, ...changes };

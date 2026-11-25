@@ -49,6 +49,10 @@ def error_responses(*statuses: int) -> dict[int | str, dict[str, object]]:
     }
 
 
+def invalid_request_value(source: str, field: str) -> RequestValidationError:
+    return RequestValidationError([{"loc": (source, field), "type": "value_error"}])
+
+
 def _request_location(location: object) -> list[str | int]:
     # Validation locations below the request source can contain submitted map keys.
     if not isinstance(location, (list, tuple)) or not location:

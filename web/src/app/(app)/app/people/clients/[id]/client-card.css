@@ -383,3 +383,38 @@
   font-family: var(--font-title);
   font-size: 1.6rem;
 }
+
+.client-meeting-group {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.client-meeting-list {
+  overflow: hidden;
+  border-radius: 0.8rem;
+  background: var(--color-card);
+}
+
+.client-meeting-list > li + li {
+  border-top: 1px solid var(--client-line);
+}
+
+.client-meeting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 0.6rem;
+  padding: 0.65rem 0.75rem;
+  text-align: left;
+}
+
+.client-meeting-row > span:first-child {
+  display: grid;
+  gap: 0.15rem;
+  flex: 1;
+}
+
+.client-meeting-row small {
+  color: var(--color-secondary);
+}

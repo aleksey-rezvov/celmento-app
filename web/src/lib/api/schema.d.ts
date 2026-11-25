@@ -1876,6 +1876,7 @@ export interface components {
       items: components["schemas"]["Meeting"][];
       attended: components["schemas"]["AttendedMeeting"][];
       pending_outcomes_count: number;
+      next_outcome_in_seconds: number | null;
       attended_total: number;
       specialists_count: number;
     };
@@ -1889,7 +1890,7 @@ export interface components {
       place: components["schemas"]["MeetingPlace"];
       meeting_link?: string | null;
       address?: string | null;
-      price?: components["schemas"]["DecimalAmount"];
+      price?: components["schemas"]["StoredDecimalAmount"];
       currency?: components["schemas"]["Currency"];
       comment?: string | null;
       allow_overlap: boolean;
@@ -1907,7 +1908,7 @@ export interface components {
       place?: components["schemas"]["MeetingPlace"];
       meeting_link?: string | null;
       address?: string | null;
-      price?: components["schemas"]["DecimalAmount"];
+      price?: components["schemas"]["StoredDecimalAmount"];
       currency?: components["schemas"]["Currency"];
       comment?: string | null;
       allow_overlap: boolean;
@@ -1922,7 +1923,7 @@ export interface components {
     MeetingOutcomeInput: {
       status: components["schemas"]["MeetingOutcomeStatus"];
       actual_duration_minutes?: components["schemas"]["DurationMinutes"];
-      price?: components["schemas"]["DecimalAmount"];
+      price?: components["schemas"]["StoredDecimalAmount"];
       payment_type?: components["schemas"]["PaymentType"];
       charged?: boolean;
     };
@@ -3689,7 +3690,9 @@ export interface operations {
   createMeeting: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+      };
       path?: never;
       cookie?: never;
     };
@@ -3810,6 +3813,7 @@ export interface operations {
       401: components["responses"]["Unauthorized"];
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
+      422: components["responses"]["ValidationError"];
       500: components["responses"]["InternalError"];
     };
   };
@@ -3836,6 +3840,7 @@ export interface operations {
       401: components["responses"]["Unauthorized"];
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
+      422: components["responses"]["ValidationError"];
       500: components["responses"]["InternalError"];
     };
   };

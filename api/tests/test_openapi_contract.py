@@ -94,7 +94,7 @@ def test_api_enumerations_match_contract(openapi_contract: dict[str, object]) ->
     assert actual == expected
 
 
-def test_account_clients_and_payments_use_named_request_bodies() -> None:
+def test_account_client_payment_and_meeting_request_bodies_are_named() -> None:
     paths = _object(api.openapi()["paths"], "generated paths")
     for path, method, media_type, name in (
         ("/account", "patch", "application/json", "AccountUpdate"),
@@ -119,6 +119,14 @@ def test_account_clients_and_payments_use_named_request_bodies() -> None:
             "patch",
             "application/json",
             "ClientPaymentUpdate",
+        ),
+        ("/meetings", "post", "application/json", "MeetingCreate"),
+        ("/meetings/{meeting_id}", "patch", "application/json", "MeetingUpdate"),
+        (
+            "/meetings/{meeting_id}/outcome",
+            "put",
+            "application/json",
+            "MeetingOutcomeInput",
         ),
     ):
         operation = _object(_object(paths[path], path)[method], method)

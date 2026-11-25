@@ -12,6 +12,7 @@ import {
 import { ClientHeader } from "@/components/clients/card/ClientHeader";
 import { ContactsBlock } from "@/components/clients/card/ContactsBlock";
 import { LinkBlock } from "@/components/clients/card/LinkBlock";
+import { MeetingsBlock } from "@/components/clients/card/MeetingsBlock";
 import { PrivateTextBlock } from "@/components/clients/card/PrivateTextBlock";
 import { QuickActions } from "@/components/clients/card/QuickActions";
 import { Sheet } from "@/components/shell/Sheet";
@@ -68,10 +69,7 @@ function ClientCardView({ card, onChanged }: ClientCardViewProps): ReactElement 
         <ClientHeader card={card} />
         <QuickActions card={card} />
         <BalanceBlock card={card} />
-        <section className="client-block">
-          <h2>{t("client.meetings")}</h2>
-          <p className="client-hint">{t("client.no_meetings")}</p>
-        </section>
+        <MeetingsBlock clientId={card.id} />
         <ContactsBlock card={card} editHref={edit} />
         <LinkBlock card={card} bookingUrl={bookingUrl} onChanged={onChanged} />
         <PrivateTextBlock

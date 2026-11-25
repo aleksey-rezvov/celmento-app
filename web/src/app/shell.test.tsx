@@ -22,6 +22,7 @@ const navigation = vi.hoisted(() => ({
 vi.mock("next/navigation", () => ({
   useRouter: () => navigation.router,
   usePathname: () => navigation.pathname,
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 interface LinkProps extends ComponentPropsWithoutRef<"a"> {
@@ -118,6 +119,15 @@ function signIn(account: Account, notices: Notice[] = []): Request[] {
         return json(account);
       case "/api/v1/notices":
         return json({ items: notices } satisfies Schemas["NoticeList"]);
+      case "/api/v1/meetings":
+        return json({
+          items: [],
+          attended: [],
+          pending_outcomes_count: 0,
+          next_outcome_in_seconds: null,
+          attended_total: 0,
+          specialists_count: 0,
+        } satisfies Schemas["MeetingList"]);
       case "/api/v1/clients":
         if (account.leader) {
           return json({ items: [], plan: account.leader.plan } satisfies Schemas["ClientList"]);
@@ -281,9 +291,11 @@ test.each([false, true])(
     );
 
     view.rerender(atPath("/app/meetings", <Meetings />));
-    const createMeeting = menuContent.queryByRole("button", { name: t("meetings.empty_day_cta") });
+    const createMeeting = menuContent.queryByRole("link", { name: t("meetings.empty_day_cta") });
     if (activated) {
-      expect(createMeeting).toHaveProperty("disabled", true);
+      expect(createMeeting?.getAttribute("href")).toMatch(
+        /^\/app\/meetings\/new\?date=\d{4}-\d{2}-\d{2}$/u,
+      );
     } else {
       expect(createMeeting).toBeNull();
     }
