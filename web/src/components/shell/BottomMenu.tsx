@@ -6,6 +6,7 @@ import { useEffect, useState, type ReactElement } from "react";
 import { useAccount } from "@/lib/account";
 import { formatDate } from "@/lib/format";
 import { useTranslation, type MessageKey } from "@/lib/i18n";
+import { newClientHref, newClientPath } from "@/lib/limit";
 import { FloatingAction } from "./FloatingAction";
 import { useAppNavigation } from "./navigation";
 
@@ -31,7 +32,7 @@ const tabs: readonly Tab[] = [
   {
     id: "people",
     label: "people.title",
-    create: { href: "/app/people/clients/new", label: "clients.empty_add" },
+    create: { href: newClientPath, label: "clients.empty_add" },
   },
   { id: "records", label: "acc.title" },
   { id: "profile", label: "profile.title" },
@@ -126,7 +127,14 @@ export function BottomMenu({ activated }: BottomMenuProps): ReactElement {
                 </svg>
                 <span>{label}</span>
               </Link>
-              {action && <FloatingAction href={action.href} labelKey={action.label} disabled />}
+              {/* spec:impl client-list#open-client-creation-form-floating */}
+              {action && (
+                <FloatingAction
+                  href={tab.id === "people" ? newClientHref(account.leader?.plan) : action.href}
+                  labelKey={action.label}
+                  disabled={tab.id !== "people"}
+                />
+              )}
             </li>
           );
         })}

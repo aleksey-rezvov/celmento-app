@@ -1,0 +1,66 @@
+.client-create-form,
+.client-create-fields,
+.client-create-contacts,
+.client-create-pricing {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.client-create-form {
+  padding: 1rem;
+  border-radius: 1.5rem;
+  background: var(--color-card);
+}
+
+.client-create-contacts h2 {
+  font-weight: 650;
+}
+
+.client-create-form .client-field {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+  padding: 0.625rem 0.875rem;
+}
+
+.client-create-form .client-field > span,
+.client-create-form .client-hint {
+  color: var(--color-secondary);
+  font-size: 0.875rem;
+}
+
+.client-create-form .client-field input {
+  width: 100%;
+  min-height: 1.5rem;
+  color: var(--color-text);
+}
+
+.client-create-form .client-rate-fields {
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 1rem;
+  background: #f0f0f1;
+}
+
+.client-create-form .client-rate-fields > * + * {
+  border-top: 1px solid #e6e6e7;
+}
+
+.client-create-form .client-hint,
+.client-create-form .clients-error {
+  margin-inline: 0.25rem;
+}
+
+.client-create-form .clients-error {
+  color: #a4243b;
+}
+
+.client-create-submit {
+  justify-self: end;
+}
+
+.client-create-submit:disabled {
+  opacity: 0.65;
+  cursor: default;
+}

@@ -65,7 +65,7 @@ export function otherPartyHint(
 export function formatMoney(money: Money, language: Language): string {
   const [whole = "0", fraction = ""] = money.amount.split(".");
   const units = whole.replace(/^-?0*(?=\d)/u, "");
-  const grouped = units.replace(/\B(?=(\d{3})+(?!\d))/gu, " ");
+  const grouped = groupDigits(units);
   const fractionalDigits = fraction.replace(/0+$/u, "");
   const separator = language === "ru" ? "," : ".";
   const sign = whole.startsWith("-") && (units !== "0" || fractionalDigits) ? "−" : "";
@@ -77,4 +77,15 @@ export function formatMoney(money: Money, language: Language): string {
 
 export function formatMoneyLine(items: readonly Money[], language: Language): string {
   return items.map((money) => formatMoney(money, language)).join(" · ");
+}
+
+function groupDigits(value: string): string {
+  return value.replace(/\B(?=(\d{3})+(?!\d))/gu, " ");
+}
+
+export function formatSessionCount(value: Schemas["DecimalAmount"], language: Language): string {
+  const [whole = "0", fraction] = value.split(".");
+  const grouped = groupDigits(whole);
+  const separator = language === "ru" ? "," : ".";
+  return fraction ? grouped + separator + fraction : grouped;
 }
