@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, type ReactElement } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import { ClientForm } from "@/components/clients/ClientForm";
 import { ScreenHeader } from "@/components/shell/ScreenHeader";
 import { useAccount } from "@/lib/account";
@@ -14,7 +14,8 @@ export default function NewClient(): ReactElement | null {
   const { account } = useAccount();
   const t = useTranslation();
   const leader = account.activated ? account.leader : null;
-  const destination = leader ? newClientHref(leader.plan) : peoplePath;
+  // Keep the form open long enough to open the third card after the count refreshes.
+  const [destination] = useState(() => (leader ? newClientHref(leader.plan) : peoplePath));
 
   useEffect(() => {
     // spec:impl client-card-create#check-free-plan-limit-before

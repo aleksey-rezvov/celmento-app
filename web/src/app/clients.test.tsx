@@ -441,9 +441,9 @@ test("routes a capped leader to the limit view before showing any creation field
 // spec:test client-card-create#offer-self-given-email-link-login-field
 // spec:test client-card-create#ask-other-card-field-creation
 // spec:test client-card-create#create-card-save-standalone-card
-test("prefills the full form, saves exact reference contacts and requires an explicit type at zero", async () => {
+test("prefills the full form, saves the third card with exact reference contacts and an explicit type at zero", async () => {
   setSessionToken(token);
-  let count = 0;
+  let count = 2;
   const requests = mockApi((request, url) => {
     if (url.pathname === "/api/v1/account") return json(accountFor(freePlan(count)));
     if (request.method === "POST" && url.pathname === "/api/v1/clients") {
@@ -494,6 +494,7 @@ test("prefills the full form, saves exact reference contacts and requires an exp
   });
   expect(post?.headers.get("Idempotency-Key")).toMatch(/^[0-9a-f-]{36}$/u);
   expect(requests.filter(({ url }) => url.endsWith("/account"))).toHaveLength(2);
+  expect(navigation.router.replace).toHaveBeenCalledTimes(1);
 });
 
 test("sends the same idempotency key on an unchanged retry and issues a new key for a changed card", async () => {
