@@ -113,6 +113,7 @@ def record_acceptances(
             Acceptance(
                 account_id=account_id,
                 meeting_id=meeting_id,
+                guest_booking_id=meeting_id,
                 kind=AcceptanceKind(item.document.value),
                 version=item.version,
                 accepted_at=item.accepted_at

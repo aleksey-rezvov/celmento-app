@@ -1,4 +1,6 @@
 import type { Schemas } from "./api/client";
+import { normalizeEmail } from "./auth";
+import { clearRegistrationDeviceKey } from "./registration-device";
 import { getSessionToken } from "./session";
 
 const storageKeys = {
@@ -18,10 +20,16 @@ type RegistrationClaims = Schemas["RegistrationPackageClaims"];
 export interface PendingCode {
   email: string;
   firstName: string | null;
+  origin?: RegistrationOrigin | null;
   registration?: Schemas["AccountRegistration"];
   resendAt: number;
   expiresAt: number;
   lockedUntil: number;
+}
+
+export interface SignInHandoff {
+  email: string | null;
+  origin: RegistrationOrigin | null;
 }
 
 let codeScreenOpen = false;
@@ -112,6 +120,7 @@ function isPendingCode(value: unknown): value is PendingCode {
     isRecord(value) &&
     typeof value.email === "string" &&
     (value.firstName === null || typeof value.firstName === "string") &&
+    (value.origin == null || isOrigin(value.origin)) &&
     (value.registration === undefined || isRegistration(value.registration)) &&
     typeof value.resendAt === "number" &&
     typeof value.expiresAt === "number" &&
@@ -147,6 +156,55 @@ export function parseRegistrationOrigin(value: string | null): RegistrationOrigi
   return isOrigin(origin)
     ? { page: origin.page, login: origin.login, meeting_id: origin.meeting_id }
     : null;
+}
+
+function matchesHandoff(
+  handoff: SignInHandoff,
+  email: string,
+  origin: RegistrationOrigin | null,
+): boolean {
+  const target = handoff.origin;
+  const sameOrigin =
+    target === null || origin === null
+      ? target === origin
+      : target.page === origin.page &&
+        target.login.toLowerCase() === origin.login.toLowerCase() &&
+        target.meeting_id?.toLowerCase() === origin.meeting_id?.toLowerCase();
+  return (
+    sameOrigin &&
+    (handoff.email === null || normalizeEmail(handoff.email) === normalizeEmail(email))
+  );
+}
+
+export function prepareSignInHandoff(handoff: SignInHandoff): void {
+  const previousOrigin = loadOrigin();
+  const pending = loadPackage();
+  if (pending && !matchesHandoff(handoff, pending.claims.email, pending.claims.origin)) {
+    window.localStorage.removeItem(storageKeys.registrationPackage);
+    void clearRegistrationDeviceKey(pending.claims.device_public_key);
+  }
+
+  const code = loadCode();
+  const codeOrigin = code?.registration
+    ? (code.registration.origin ?? null)
+    : (code?.origin ?? null);
+  if (code && !matchesHandoff(handoff, code.email, codeOrigin)) {
+    window.localStorage.removeItem(storageKeys.code);
+    closeCode();
+  }
+
+  const signupEmail = loadSignupEmail();
+  if (signupEmail && !matchesHandoff(handoff, signupEmail, previousOrigin)) {
+    window.localStorage.removeItem(storageKeys.signupEmail);
+  }
+
+  if (handoff.origin) {
+    saveOrigin(handoff.origin);
+  } else {
+    window.localStorage.removeItem(storageKeys.origin);
+    window.localStorage.removeItem(storageKeys.intent);
+  }
+  if (handoff.email) saveEmail(normalizeEmail(handoff.email));
 }
 
 export function savePackage(registrationPackage: RegistrationPackage): void {
@@ -230,6 +288,7 @@ export function startCode(
   const code: PendingCode = {
     email,
     firstName,
+    origin: registration ? (registration.origin ?? null) : loadOrigin(),
     registration,
     resendAt: now + 60_000,
     expiresAt: now + 600_000,
@@ -263,18 +322,22 @@ export function closeCode(): void {
   codeScreenOpen = false;
 }
 
-export function resumePath(): "/app" | "/register/finish" | "/login" | null {
+export function resumePath(handoff?: SignInHandoff): "/app" | "/register/finish" | "/login" | null {
   if (getSessionToken()) {
     return "/app";
   }
 
   const hasStoredPackage = read(storageKeys.registrationPackage) !== null;
-  if (loadPackage()) {
+  const registration = loadPackage();
+  if (
+    registration &&
+    (!handoff || matchesHandoff(handoff, registration.claims.email, registration.claims.origin))
+  ) {
     // spec:impl registration-finish-screen#reopen-screen-1-4-prefill-without-asking
     return "/register/finish";
   }
 
-  if (hasStoredPackage || loadCode() || loadSignupEmail() || loadEmail()) {
+  if (handoff || hasStoredPackage || loadCode() || loadSignupEmail() || loadEmail()) {
     // spec:impl email-code-sign-in#reopen-screen-1-1-email-prefilled
     return "/login";
   }

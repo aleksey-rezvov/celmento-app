@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from uuid import UUID
+from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -197,8 +197,13 @@ async def _apply_form(
                 {"meeting": existing.model_dump(mode="json")},
             )
 
+    new_card_id = card.client_card_id if card is not None else None
+    if exclude_id is not None and meeting.client_card_id != new_card_id:
+        meeting.public_id = uuid4()
+        meeting.guest_language = None
+        meeting.guest_time_zone = None
     meeting.type = kind.value
-    meeting.client_card_id = card.client_card_id if card is not None else None
+    meeting.client_card_id = new_card_id
     meeting.with_whom = (
         body.get("with_whom", meeting.with_whom) if card is None else None
     )

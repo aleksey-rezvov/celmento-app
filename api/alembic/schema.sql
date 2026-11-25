@@ -1,4 +1,4 @@
--- Alembic revision: 0005
+-- Alembic revision: 0006
 --
 -- PostgreSQL database dump
 --
@@ -35,7 +35,9 @@ CREATE TABLE public.acceptance (
     kind text NOT NULL,
     version text,
     accepted_at timestamp with time zone NOT NULL,
-    CONSTRAINT acceptance_has_one_subject CHECK (((account_id IS NULL) <> (meeting_id IS NULL))),
+    guest_booking_id uuid,
+    CONSTRAINT acceptance_has_one_subject CHECK (((account_id IS NULL) <> (guest_booking_id IS NULL))),
+    CONSTRAINT acceptance_live_meeting_matches_booking CHECK (((meeting_id IS NULL) OR ((guest_booking_id IS NOT NULL) AND (meeting_id = guest_booking_id)))),
     CONSTRAINT acceptance_requires_document_version CHECK (((kind = 'age_confirmation'::text) = (version IS NULL)))
 );
 
@@ -200,6 +202,22 @@ CREATE TABLE public.folder (
 
 
 --
+-- Name: guest_booking_receipt; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.guest_booking_receipt (
+    guest_booking_receipt_id uuid DEFAULT uuidv7() NOT NULL,
+    leader_account_id uuid NOT NULL,
+    idempotency_key uuid NOT NULL,
+    meeting_id uuid,
+    public_id uuid NOT NULL,
+    request_digest text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT guest_booking_receipt_digest_valid CHECK ((request_digest ~ '^[0-9a-f]{64}$'::text))
+);
+
+
+--
 -- Name: leader_profile; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -273,6 +291,9 @@ CREATE TABLE public.meeting (
     client_comment text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    guest_language text,
+    guest_time_zone text,
+    public_id uuid DEFAULT gen_random_uuid() NOT NULL,
     CONSTRAINT meeting_actual_duration_matches_status CHECK ((((status = 'completed'::text) = (actual_duration_minutes IS NOT NULL)) AND ((actual_duration_minutes IS NULL) OR (actual_duration_minutes > 0)))),
     CONSTRAINT meeting_charge_decision_matches_status CHECK (((status = 'not_taken_place'::text) = (charged IS NOT NULL))),
     CONSTRAINT meeting_client_fields_match_type CHECK ((((type = 'client_session'::text) = (client_card_id IS NOT NULL)) AND ((type = 'client_session'::text) = (payment_type IS NOT NULL)) AND ((type = 'client_session'::text) = (currency_version IS NOT NULL)))),
@@ -280,6 +301,8 @@ CREATE TABLE public.meeting (
     CONSTRAINT meeting_currency_known CHECK ((currency = ANY (ARRAY['RUB'::text, 'EUR'::text, 'USD'::text]))),
     CONSTRAINT meeting_currency_version_valid CHECK ((currency_version >= 1)),
     CONSTRAINT meeting_duration_valid CHECK ((duration_minutes > 0)),
+    CONSTRAINT meeting_guest_language_known CHECK ((guest_language = ANY (ARRAY['ru'::text, 'en'::text]))),
+    CONSTRAINT meeting_guest_locale_matches_booking CHECK ((((guest_language IS NULL) = (guest_time_zone IS NULL)) AND ((guest_language IS NULL) OR (source = 'self_booked'::text)))),
     CONSTRAINT meeting_location_matches_place CHECK ((((meeting_link IS NULL) OR (place = 'online'::text)) AND ((address IS NULL) OR (place = 'in_person'::text)))),
     CONSTRAINT meeting_own_duration_valid CHECK ((((type = 'mutual_practice'::text) = (my_duration_minutes IS NOT NULL)) AND ((my_duration_minutes IS NULL) OR ((my_duration_minutes >= 1) AND (my_duration_minutes <= duration_minutes))))),
     CONSTRAINT meeting_paid_price_valid CHECK (((payment_type <> 'paid'::text) OR (price > (0)::numeric))),
@@ -585,6 +608,22 @@ ALTER TABLE ONLY public.folder
 
 
 --
+-- Name: guest_booking_receipt guest_booking_receipt_key_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.guest_booking_receipt
+    ADD CONSTRAINT guest_booking_receipt_key_unique UNIQUE (leader_account_id, idempotency_key);
+
+
+--
+-- Name: guest_booking_receipt guest_booking_receipt_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.guest_booking_receipt
+    ADD CONSTRAINT guest_booking_receipt_pkey PRIMARY KEY (guest_booking_receipt_id);
+
+
+--
 -- Name: leader_profile leader_profile_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -638,6 +677,14 @@ ALTER TABLE ONLY public.meeting_expense_correction
 
 ALTER TABLE ONLY public.meeting
     ADD CONSTRAINT meeting_pkey PRIMARY KEY (meeting_id);
+
+
+--
+-- Name: meeting meeting_public_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.meeting
+    ADD CONSTRAINT meeting_public_id_key UNIQUE (public_id);
 
 
 --
@@ -791,6 +838,13 @@ CREATE INDEX ix_acceptance_account_id ON public.acceptance USING btree (account_
 
 
 --
+-- Name: ix_acceptance_guest_booking_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_acceptance_guest_booking_id ON public.acceptance USING btree (guest_booking_id);
+
+
+--
 -- Name: ix_acceptance_meeting_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -851,6 +905,13 @@ CREATE INDEX ix_feedback_message_account_id ON public.feedback_message USING btr
 --
 
 CREATE INDEX ix_folder_owner_created ON public.folder USING btree (owner_account_id, created_at, folder_id);
+
+
+--
+-- Name: ix_guest_booking_receipt_meeting_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_guest_booking_receipt_meeting_id ON public.guest_booking_receipt USING btree (meeting_id);
 
 
 --
@@ -974,6 +1035,14 @@ ALTER TABLE ONLY public.acceptance
 
 
 --
+-- Name: acceptance acceptance_meeting_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.acceptance
+    ADD CONSTRAINT acceptance_meeting_id_fkey FOREIGN KEY (meeting_id) REFERENCES public.meeting(meeting_id) ON DELETE SET NULL;
+
+
+--
 -- Name: balance_operation balance_operation_client_card_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1035,6 +1104,22 @@ ALTER TABLE ONLY public.balance_operation
 
 ALTER TABLE ONLY public.folder
     ADD CONSTRAINT folder_owner_account_id_fkey FOREIGN KEY (owner_account_id) REFERENCES public.account(account_id) ON DELETE RESTRICT;
+
+
+--
+-- Name: guest_booking_receipt guest_booking_receipt_leader_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.guest_booking_receipt
+    ADD CONSTRAINT guest_booking_receipt_leader_account_id_fkey FOREIGN KEY (leader_account_id) REFERENCES public.account(account_id) ON DELETE RESTRICT;
+
+
+--
+-- Name: guest_booking_receipt guest_booking_receipt_meeting_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.guest_booking_receipt
+    ADD CONSTRAINT guest_booking_receipt_meeting_id_fkey FOREIGN KEY (meeting_id) REFERENCES public.meeting(meeting_id) ON DELETE SET NULL;
 
 
 --

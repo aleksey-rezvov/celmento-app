@@ -24,6 +24,7 @@ class Meeting(Base):
             "ix_meeting_leader_account_id_starts_at", "leader_account_id", "starts_at"
         ),
         Index("ix_meeting_client_card_id_starts_at", "client_card_id", "starts_at"),
+        UniqueConstraint("public_id", name="meeting_public_id_key"),
         CheckConstraint(
             "type IN ('client_session', 'personal_therapy', 'supervision', 'training', 'mutual_practice')",
             name="meeting_type_known",
@@ -85,11 +86,21 @@ class Meeting(Base):
         CheckConstraint(
             "source IN ('specialist', 'self_booked')", name="meeting_source_known"
         ),
+        CheckConstraint(
+            "guest_language IN ('ru', 'en')", name="meeting_guest_language_known"
+        ),
+        CheckConstraint(
+            "(guest_language IS NULL) = (guest_time_zone IS NULL) AND "
+            "(guest_language IS NULL OR source = 'self_booked')",
+            name="meeting_guest_locale_matches_booking",
+        ),
     )
 
     meeting_id: Mapped[UUID] = mapped_column(
         primary_key=True, server_default=text("uuidv7()")
     )
+    # spec:impl meeting-invite-page#make-meeting-id-address-random
+    public_id: Mapped[UUID] = mapped_column(server_default=text("gen_random_uuid()"))
     leader_account_id: Mapped[UUID] = mapped_column(
         ForeignKey("account.account_id", ondelete="RESTRICT")
     )
@@ -115,6 +126,8 @@ class Meeting(Base):
     comment: Mapped[str | None] = mapped_column(Text)
     source: Mapped[str] = mapped_column(Text)
     client_comment: Mapped[str | None] = mapped_column(Text)
+    guest_language: Mapped[str | None] = mapped_column(Text)
+    guest_time_zone: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()")
     )
@@ -147,6 +160,37 @@ class MeetingCreateReceipt(Base):
     meeting_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("meeting.meeting_id", ondelete="SET NULL"), index=True
     )
+    request_digest: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
+class GuestBookingReceipt(Base):
+    __tablename__ = "guest_booking_receipt"
+    __table_args__ = (
+        UniqueConstraint(
+            "leader_account_id",
+            "idempotency_key",
+            name="guest_booking_receipt_key_unique",
+        ),
+        CheckConstraint(
+            "request_digest ~ '^[0-9a-f]{64}$'",
+            name="guest_booking_receipt_digest_valid",
+        ),
+    )
+
+    guest_booking_receipt_id: Mapped[UUID] = mapped_column(
+        primary_key=True, server_default=text("uuidv7()")
+    )
+    leader_account_id: Mapped[UUID] = mapped_column(
+        ForeignKey("account.account_id", ondelete="RESTRICT")
+    )
+    idempotency_key: Mapped[UUID] = mapped_column()
+    meeting_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("meeting.meeting_id", ondelete="SET NULL"), index=True
+    )
+    public_id: Mapped[UUID] = mapped_column()
     request_digest: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()")

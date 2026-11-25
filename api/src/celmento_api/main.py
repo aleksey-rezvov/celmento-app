@@ -20,6 +20,7 @@ from celmento_api.routers import (
     meetings,
     notes,
     notices,
+    public,
 )
 
 settings: Settings = get_settings()
@@ -50,6 +51,7 @@ api: FastAPI = FastAPI(
         {"name": "meetings"},
         {"name": "notes"},
         {"name": "notices"},
+        {"name": "public"},
     ],
 )
 api.openapi_version = "3.1.1"
@@ -64,6 +66,7 @@ api.include_router(meetings.router)
 api.include_router(notes.router)
 api.include_router(notes.folders_router)
 api.include_router(notices.router)
+api.include_router(public.router)
 
 app: FastAPI = FastAPI(
     openapi_url=None,
