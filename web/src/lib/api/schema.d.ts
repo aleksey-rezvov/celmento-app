@@ -1860,7 +1860,12 @@ export interface components {
       date?: string;
       comment?: string | null;
     };
+    ClientArchiveConfirm: {
+      preview_token: components["schemas"]["ArchivePreviewToken"];
+    };
+    ArchivePreviewToken: string;
     ClientArchivePreview: {
+      preview_token: components["schemas"]["ArchivePreviewToken"];
       meetings_to_delete: components["schemas"]["Meeting"][];
       meetings_awaiting_outcome: components["schemas"]["Meeting"][];
       balance: components["schemas"]["Money"];
@@ -3122,7 +3127,11 @@ export interface operations {
       };
       cookie?: never;
     };
-    requestBody?: never;
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ClientArchiveConfirm"];
+      };
+    };
     responses: {
       200: {
         headers: {
@@ -3136,6 +3145,7 @@ export interface operations {
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
+      422: components["responses"]["ValidationError"];
       500: components["responses"]["InternalError"];
     };
   };
@@ -3161,6 +3171,7 @@ export interface operations {
       401: components["responses"]["Unauthorized"];
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
+      422: components["responses"]["ValidationError"];
       500: components["responses"]["InternalError"];
     };
   };
@@ -3511,6 +3522,7 @@ export interface operations {
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
+      422: components["responses"]["ValidationError"];
       500: components["responses"]["InternalError"];
     };
   };
@@ -3840,6 +3852,7 @@ export interface operations {
       401: components["responses"]["Unauthorized"];
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
       422: components["responses"]["ValidationError"];
       500: components["responses"]["InternalError"];
     };

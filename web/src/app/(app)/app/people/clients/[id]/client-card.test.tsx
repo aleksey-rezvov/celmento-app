@@ -7,6 +7,7 @@ import { AccountProvider } from "@/lib/account";
 import type { Schemas } from "@/lib/api/client";
 import { t } from "@/lib/i18n/messages";
 import { setSessionToken } from "@/lib/session";
+import ClientArchivePage from "./archive/page";
 import BalancePage from "./balance/page";
 import EditClientPage from "./edit/page";
 import ClientPage from "./page";
@@ -761,10 +762,95 @@ test("keeps payment controls unavailable for an archived card, including direct 
   expect(screen.queryByRole("button", { name: t("client.add_payment") })).toBeNull();
   view.rerender(providers(<NewPaymentPage />));
   await screen.findByRole("heading", { name: t("payment.title") });
+  expect(screen.queryByRole("textbox", { name: /Amount/u })).toBeNull();
   expect(screen.queryByRole("button", { name: t("extra.client_save") })).toBeNull();
   view.rerender(providers(<EditPaymentPage />));
   await screen.findByText(t("extra.auth_request_failed"));
+  expect(screen.queryByRole("textbox", { name: /Amount/u })).toBeNull();
   expect(screen.queryByRole("button", { name: t("card.delete") })).toBeNull();
   expect(screen.queryByRole("button", { name: t("extra.client_save") })).toBeNull();
   expect(requests.every((request) => request.method === "GET")).toBe(true);
+});
+
+// spec:test client-card-view-edit#offer-three-dot-menu-screen-6-1
+// spec:test client-archive-restore#open-confirmation-screen-5-4-titled
+test("opens archive confirmation from the active card and offers only Restore in the archived menu", async () => {
+  let current = card({ info: "Private history", balance: balance("50") });
+  const requests = setupApi(current, undefined, (request, path) => {
+    if (path === "/clients/card-one" && request.method === "GET") return json(current);
+    if (path === "/clients/card-one/archive-preview") {
+      return json({
+        preview_token: "empty-preview",
+        meetings_to_delete: [],
+        meetings_awaiting_outcome: [],
+        balance: { amount: "0", currency: "USD" },
+      } satisfies Schemas["ClientArchivePreview"]);
+    }
+  });
+
+  const view = render(providers(<ClientPage />));
+  await screen.findByRole("heading", { name: current.name });
+  const actions = () => within(screen.getByRole("dialog", { name: t("extra.client_actions") }));
+  click(t("extra.client_actions"));
+  fireEvent.click(actions().getByRole("button", { name: t("card.edit") }));
+  expect(navigation.push).toHaveBeenLastCalledWith(href + "/edit");
+
+  click(t("extra.client_actions"));
+  fireEvent.click(actions().getByRole("button", { name: t("archive.action") }));
+  expect(navigation.push).toHaveBeenLastCalledWith(href + "/archive");
+  view.rerender(providers(<ClientArchivePage />));
+  expect(
+    await screen.findByRole("heading", { name: t("archive.title", { name: current.name }) }),
+  ).toBeTruthy();
+  expect(await screen.findByText(t("archive.no_planned"))).toBeTruthy();
+  expect(screen.queryByText(t("archive.balance", { amount: "0 $" }))).toBeNull();
+  click(t("archive.cancel"));
+  expect(navigation.push).toHaveBeenLastCalledWith(href);
+  expect(all(requests, "POST", "/clients/card-one/archive")).toHaveLength(0);
+
+  current = { ...current, status: "archived", archived_at: instant };
+  view.rerender(providers(<ClientPage />));
+  expect(
+    await screen.findByText(t("client.archived_banner", { date: "25 November" })),
+  ).toBeTruthy();
+  expect(screen.getByText("Private history")).toBeTruthy();
+  expect(screen.getByText("50 $")).toBeTruthy();
+  expect(screen.getByRole("button", { name: t("archive.restore") })).toBeTruthy();
+  for (const key of ["client.book", "client.note", "client.add_payment"] as const) {
+    expect(screen.queryByRole("button", { name: t(key) })).toBeNull();
+  }
+  click(t("extra.back"));
+  expect(navigation.push).toHaveBeenLastCalledWith("/app/people?clients=archived");
+  click(t("extra.client_actions"));
+  const archived = actions();
+  expect(archived.getByRole("button", { name: t("archive.restore") })).toBeTruthy();
+  expect(archived.queryByRole("button", { name: t("card.edit") })).toBeNull();
+  expect(archived.queryByRole("button", { name: t("archive.action") })).toBeNull();
+});
+
+test("redirects a saved direct client-edit URL to the read-only archived card", async () => {
+  const requests = setupApi(card({ status: "archived", archived_at: instant }));
+  render(providers(<EditClientPage />));
+
+  await waitFor(() => expect(navigation.replace).toHaveBeenCalledExactlyOnceWith(href));
+  expect(screen.queryByRole("textbox")).toBeNull();
+  expect(screen.queryByRole("button", { name: t("extra.client_save") })).toBeNull();
+  expect(requests.every(({ method }) => method === "GET")).toBe(true);
+});
+
+test("restores the archived card through its menu and refreshes the active client count", async () => {
+  const current = card({ status: "archived", archived_at: instant });
+  const requests = setupApi(current, undefined, (request, path) => {
+    if (path === "/clients/card-one/restore" && request.method === "POST")
+      return json({ ...current, status: "active", archived_at: null });
+  });
+  render(providers(<ClientPage />));
+  await screen.findByRole("heading", { name: current.name });
+  click(t("extra.client_actions"));
+  const menu = within(screen.getByRole("dialog", { name: t("extra.client_actions") }));
+  fireEvent.click(menu.getByRole("button", { name: t("archive.restore") }));
+
+  await waitFor(() => expect(navigation.replace).toHaveBeenCalledExactlyOnceWith("/app/people"));
+  expect(all(requests, "POST", "/clients/card-one/restore")).toHaveLength(1);
+  expect(all(requests, "GET", "/account")).toHaveLength(2);
 });

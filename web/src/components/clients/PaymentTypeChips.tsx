@@ -23,21 +23,27 @@ interface PaymentTypeChipsProps {
   price: string;
   value: PaymentType | null;
   onChange: (value: PaymentType) => void;
+  disabled?: boolean;
 }
 
-export function PaymentTypeChips({ price, value, onChange }: PaymentTypeChipsProps): ReactElement {
+export function PaymentTypeChips({
+  price,
+  value,
+  onChange,
+  disabled = false,
+}: PaymentTypeChipsProps): ReactElement {
   const t = useTranslation();
   const zero = isZeroClientRate(price);
 
   return (
     <ChoiceChips
       label={t("extra.client_payment_type")}
-      value={zero && value === "paid" ? null : value}
+      value={!disabled && zero && value === "paid" ? null : value}
       onChange={onChange}
       options={choices.map((choice) => ({
         value: choice.value,
         label: t(choice.label),
-        disabled: zero && choice.value === "paid",
+        disabled: disabled || (zero && choice.value === "paid"),
       }))}
     />
   );

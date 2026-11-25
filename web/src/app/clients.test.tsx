@@ -9,17 +9,20 @@ import { limitScreenHref, newClientPath, peoplePath } from "@/lib/limit";
 import { setSessionToken } from "@/lib/session";
 import AppLayout from "./(app)/app/layout";
 import Limit from "./(app)/app/limit/page";
+import ClientCard from "./(app)/app/people/clients/[id]/page";
 import NewClient from "./(app)/app/people/clients/new/page";
 import People from "./(app)/app/people/page";
 
 const navigation = vi.hoisted(() => ({
   router: { push: vi.fn(), replace: vi.fn() },
   pathname: "/app/people",
+  id: "",
   query: "",
 }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => navigation.router,
+  useParams: () => ({ id: navigation.id }),
   usePathname: () => navigation.pathname,
   useSearchParams: () => new URLSearchParams(navigation.query),
 }));
@@ -212,6 +215,7 @@ beforeEach(() => {
   window.localStorage.clear();
   document.documentElement.lang = "en";
   navigation.pathname = peoplePath;
+  navigation.id = firstId;
   navigation.query = "";
   navigation.router.push.mockReset();
   navigation.router.replace.mockReset();
@@ -281,18 +285,21 @@ test("opens Active above My specialists and renders exact localized balance badg
 // spec:test client-list#filter-clients-section-name-reference
 // spec:test client-list#open-client-card-row-tapped
 // spec:test client-list#show-not-found-character-empty-add
+// spec:test client-archive-restore#show-archive-list-leader-switches
 test("switches to Archive and searches both statuses by sending only the query", async () => {
   const active = client(firstId, "Ada Green");
   const archived = client(secondId, "Zoe Green", { status: "archived", archived_at: createdAt });
+  let archive = [archived];
   const requests = signIn(accountFor(freePlan(1)), (query) => {
     if (query.has("q")) return query.get("q") === "@reference" ? [active, archived] : [];
-    return query.get("status") === "archived" ? [archived] : [active];
+    return query.get("status") === "archived" ? archive : [active];
   });
   render(atPath(peoplePath, <People />));
   expect(await screen.findByRole("link", { name: active.name })).toBeDefined();
 
   fireEvent.click(screen.getByRole("button", { name: t("clients.archive") }));
-  expect(await screen.findByRole("link", { name: archived.name })).toBeDefined();
+  const row = (await screen.findByRole("link", { name: archived.name })).closest("li");
+  expect(row?.getAttribute("data-archived")).toBe("true");
   expect(screen.getByText(t("clients.archived_on", { date: "16 November" }))).toBeDefined();
   expect(screen.queryByRole("link", { name: active.name })).toBeNull();
 
@@ -317,6 +324,14 @@ test("switches to Archive and searches both statuses by sending only the query",
     newClientPath,
   );
   expect(section.queryByRole("link", { name: archived.name })).toBeNull();
+
+  archive = [];
+  fireEvent.click(screen.getByRole("button", { name: t("extra.close") }));
+  const empty = await section.findByText(t("clients.archive_empty"));
+  expect(empty.parentElement?.querySelector("picture img")?.getAttribute("src")).toBe(
+    "/characters/celmento-master-blue@200px.png",
+  );
+  expect(empty.parentElement?.querySelector("a, button")).toBeNull();
 });
 
 // spec:test client-list#show-empty-state-clients-section
@@ -405,6 +420,8 @@ test("keeps client list and direct creation unavailable for an unactivated accou
 
 // spec:test client-card-create#check-free-plan-limit-before
 // spec:test character-illustrations#show-celmento-master-blue-celmento-master-red
+// spec:test free-plan-client-limit#show-new-client-screen-10-1-card
+// spec:test free-plan-client-limit#return-screen-action-started-people
 test("routes a capped leader to the limit view before showing any creation fields", async () => {
   const requests = signIn(accountFor(freePlan(3)), () => [client(firstId, "Ada")]);
   const view = render(atPath(peoplePath, <People />));
@@ -421,6 +438,7 @@ test("routes a capped leader to the limit view before showing any creation field
   navigation.query = new URL(destination, origin).search;
   view.rerender(atPath("/app/limit", <Limit />));
   expect(await screen.findByRole("heading", { name: t("limit.new_client") })).toBeDefined();
+  expect(screen.getByRole("link", { name: t("extra.back") }).getAttribute("href")).toBe(peoplePath);
   expect(screen.getByRole("link", { name: t("limit.open_clients") }).getAttribute("href")).toBe(
     peoplePath,
   );
@@ -433,6 +451,111 @@ test("routes a capped leader to the limit view before showing any creation field
     "/characters/celmento-master-blue@200px.png",
     "/characters/celmento-master-red@200px.png",
   ]);
+});
+
+// spec:test client-archive-restore#open-limit-screen-restore-text
+// spec:test free-plan-client-limit#show-new-client-screen-10-1-card
+// spec:test free-plan-client-limit#return-screen-action-started-people
+test("loads the authorized client name on the restore limit screen and returns to that card", async () => {
+  setSessionToken(token);
+  const signedIn = accountFor(freePlan(3), "ru");
+  const archived: Card = {
+    ...savedCard,
+    name: "Имя до загрузки лимита",
+    status: "archived",
+    archived_at: createdAt,
+  };
+  const currentName = "Имя из авторизованной карточки";
+  const cardHref = `${peoplePath}/clients/${archived.id}`;
+  const cardApiPath = `/api/v1/clients/${archived.id}`;
+  let lookupCount = 0;
+  let releaseLookup: (response: Response) => void = () => undefined;
+  const pending = new Promise<Response>((resolve) => {
+    releaseLookup = resolve;
+  });
+  const requests = mockApi((request, url) => {
+    if (url.pathname === "/api/v1/account") return json(signedIn);
+    if (url.pathname === "/api/v1/notices") return json({ items: [] });
+    if (url.pathname === cardApiPath + "/meetings") return json({ upcoming: [], past: [] });
+    if (request.method === "POST" && url.pathname === cardApiPath + "/restore")
+      return json({ code: "client_limit_reached" }, 409);
+    if (request.method === "GET" && url.pathname === cardApiPath) {
+      lookupCount += 1;
+      return lookupCount === 2
+        ? pending
+        : json({ ...archived, name: lookupCount > 2 ? currentName : archived.name });
+    }
+    throw new Error(`Unexpected ${request.method} request to ${url.pathname}`);
+  });
+  const view = render(atPath(cardHref, <ClientCard />));
+  await screen.findByRole("heading", { name: archived.name });
+  fireEvent.click(screen.getByRole("button", { name: t("archive.restore", undefined, "ru") }));
+
+  const limitHref = `/app/limit?reason=restore&client_id=${archived.id}`;
+  await waitFor(() => expect(navigation.router.push).toHaveBeenCalledExactlyOnceWith(limitHref));
+  expect(requests.filter(({ method }) => method === "POST").map(({ url }) => url)).toEqual([
+    `${origin}${cardApiPath}/restore`,
+  ]);
+  navigation.query = new URL(limitHref, origin).search;
+  view.rerender(atPath("/app/limit", <Limit />));
+  await waitFor(() => expect(lookupCount).toBe(2));
+  expect(view.container.querySelector('[aria-busy="true"]')).toBeTruthy();
+  expect(screen.queryByText(archived.name, { exact: false })).toBeNull();
+  releaseLookup(json({ ...archived, name: currentName }));
+
+  const message = t("limit.restore", { имя: currentName }, "ru");
+  expect(await screen.findByRole("heading", { name: message })).toBeDefined();
+  const authorized = requests.filter(
+    ({ method, url }) => method === "GET" && new URL(url).pathname === cardApiPath,
+  );
+  expect(authorized[1]?.headers.get("Authorization")).toBe(`Bearer ${token}`);
+  const back = screen.getByRole("link", { name: t("extra.back", undefined, "ru") });
+  expect(back.getAttribute("href")).toBe(cardHref);
+
+  navigation.query = "";
+  view.rerender(atPath(cardHref, <ClientCard />));
+  expect(await screen.findByRole("heading", { name: currentName })).toBeDefined();
+  expect(screen.getByRole("button", { name: t("archive.restore", undefined, "ru") })).toBeDefined();
+});
+
+test("handles malformed, inaccessible and retriable restore limit lookups", async () => {
+  setSessionToken(token);
+  let fail = true;
+  const requests = mockApi((request, url) => {
+    if (url.pathname === "/api/v1/account") return json(accountFor(freePlan(3)));
+    if (url.pathname.endsWith(secondId)) return json({ code: "not_found", name: "Spoofed" }, 404);
+    if (url.pathname.endsWith(firstId) && request.method === "GET") {
+      if (fail) {
+        fail = false;
+        throw new TypeError("Offline");
+      }
+      return json({ ...savedCard, status: "archived", archived_at: createdAt });
+    }
+    throw new Error(`Unexpected ${request.method} request to ${url.pathname}`);
+  });
+  navigation.query = "reason=restore&client_id=bad-id&clientName=Spoofed&returnTo=/app/profile";
+  const view = render(atPath("/app/limit", <Limit />));
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent", t("clients.not_found"));
+  expect(screen.getByRole("link", { name: t("extra.back") }).getAttribute("href")).toBe(peoplePath);
+  expect(requests.filter(({ url }) => url.includes("/clients/")).length).toBe(0);
+  expect(screen.queryByText(/Spoofed/u)).toBeNull();
+
+  navigation.query = `reason=restore&client_id=${secondId}`;
+  view.rerender(atPath("/app/limit", <Limit />));
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent", t("clients.not_found"));
+  expect(screen.getByRole("link", { name: t("extra.back") }).getAttribute("href")).toBe(peoplePath);
+  expect(screen.queryByText(/Spoofed/u)).toBeNull();
+
+  navigation.query = `reason=restore&client_id=${firstId}`;
+  view.rerender(atPath("/app/limit", <Limit />));
+  expect(await screen.findByRole("alert")).toHaveProperty(
+    "textContent",
+    t("extra.auth_network_error"),
+  );
+  fireEvent.click(screen.getByRole("button", { name: t("extra.auth_retry") }));
+  expect(
+    await screen.findByRole("heading", { name: t("limit.restore", { name: savedCard.name }) }),
+  ).toBeDefined();
 });
 
 // spec:test client-card-create#show-screen-5-3-field-name

@@ -9,9 +9,14 @@ import { useTranslation } from "@/lib/i18n";
 import { getSessionToken } from "@/lib/session";
 
 export const clientsPath = "/app/people";
+export const archivedClientsPath = clientsPath + "?clients=archived";
 
 export function clientPath(id: string): string {
   return clientsPath + "/clients/" + encodeURIComponent(id);
+}
+
+export function clientArchivePath(id: string): string {
+  return clientPath(id) + "/archive";
 }
 
 interface ClientScreenProps {

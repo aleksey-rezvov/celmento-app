@@ -100,12 +100,17 @@ export function meetingPayload(
   draft: MeetingDraft,
   startsAt: string | null,
   showOutcome: boolean,
+  archived = false,
 ): Create | null {
   const duration = minutes(draft.duration);
   const mutual = draft.type === "mutual_practice";
   const client = draft.type === "client_session";
   const myDuration = minutes(draft.myDuration);
   const price = normalizeClientRate(draft.price);
+  const invalidPrice = !mutual && !archived && (price === null || !validRateInput(draft.price));
+  const invalidPaymentType =
+    !archived &&
+    (!draft.paymentType || (isZeroClientRate(draft.price) && draft.paymentType === "paid"));
   const maybeOutcome =
     draft.outcome?.status === "not_taken_place"
       ? { ...draft.outcome, paymentType: draft.paymentType }
@@ -117,11 +122,8 @@ export function meetingPayload(
     !startsAt ||
     duration === null ||
     (mutual && (myDuration === null || myDuration > duration)) ||
-    (!mutual && (price === null || !validRateInput(draft.price))) ||
-    (client &&
-      (!draft.client ||
-        !draft.paymentType ||
-        (isZeroClientRate(draft.price) && draft.paymentType === "paid"))) ||
+    invalidPrice ||
+    (client && (!draft.client || invalidPaymentType)) ||
     (showOutcome && maybeOutcome && !enteredOutcome)
   )
     return null;
@@ -136,15 +138,17 @@ export function meetingPayload(
   };
   if (draft.place === "online") body.meeting_link = draft.link.trim() || null;
   else body.address = draft.address.trim() || null;
-  if (client && draft.client && price !== null && draft.paymentType) {
+  if (client && draft.client) {
     body.client_id = draft.client.id;
-    body.price = price;
-    body.payment_type = draft.paymentType;
+    if (!archived && price !== null && draft.paymentType) {
+      body.price = price;
+      body.payment_type = draft.paymentType;
+    }
   } else {
     body.with_whom = draft.withWhom.trim() || null;
     body.topic = draft.topic.trim() || null;
     if (mutual && myDuration !== null) body.my_duration_minutes = myDuration;
-    else if (price !== null) {
+    else if (!archived && price !== null) {
       body.price = price;
       body.currency = draft.currency;
     }

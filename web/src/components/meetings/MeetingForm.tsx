@@ -16,9 +16,10 @@ import { useLanguage, useTranslation, type MessageKey } from "@/lib/i18n";
 import { activeClientLimitReached, limitScreenHref } from "@/lib/limit";
 import { putMeetingOutcome } from "@/lib/meeting-api";
 import { clearDraft, saveDraft, type MeetingDraft } from "@/lib/meeting-draft";
-import { meetingTypeLabels } from "@/lib/meeting-display";
+import { isArchivedClientMeeting, meetingTypeLabels } from "@/lib/meeting-display";
 import { useCurrentInstant } from "@/lib/schedule-view";
 import { getSessionToken } from "@/lib/session";
+import { zonedDay } from "@/lib/zoned-date";
 import { ClientPicker } from "./ClientPicker";
 import { DurationField, minutes } from "./DurationField";
 import { MeetingScreen, meetingPath } from "./MeetingScreen";
@@ -141,11 +142,12 @@ export function MeetingForm({
   const isClient = draft.type === "client_session";
   const isMutual = draft.type === "mutual_practice";
   const savedMeeting = partial?.meeting ?? original;
-  const archived = savedMeeting?.client?.archived === true;
+  const archived = savedMeeting !== undefined && isArchivedClientMeeting(savedMeeting);
   const fixedType = Boolean(savedMeeting && (savedMeeting.status !== "scheduled" || archived));
   const start = meetingStart(draft, account.time_zone, savedMeeting);
   const duration = minutes(draft.duration);
   const past = start !== null && Date.parse(start) <= now.getTime();
+  const startsInFuture = archived && start !== null && !past;
   const showOutcome = past && (!savedMeeting || savedMeeting.status === "scheduled") && !archived;
   const needsDefaultCurrency = !isClient && !isMutual && !draft.currencyPicked;
   const withWhom = draft.withWhom.trim();
@@ -160,7 +162,9 @@ export function MeetingForm({
       : null
     : draft.currency;
   const body =
-    currency === null ? null : meetingPayload({ ...draft, currency }, start, showOutcome);
+    currency === null || startsInFuture
+      ? null
+      : meetingPayload({ ...draft, currency }, start, showOutcome, archived);
   const endAt = start && duration ? new Date(Date.parse(start) + duration * 60000) : null;
   const end =
     endAt && Number.isFinite(endAt.getTime())
@@ -174,7 +178,7 @@ export function MeetingForm({
       : null;
   const details =
     partial && currency !== null
-      ? (body ?? meetingPayload({ ...draft, currency }, start, false))
+      ? (body ?? meetingPayload({ ...draft, currency }, start, false, archived))
       : null;
   const detailsSaved = Boolean(partial && details && detailsKey(details) === partial.detailsKey);
   const outcomePending = showOutcome && draft.outcome !== null;
@@ -442,6 +446,7 @@ export function MeetingForm({
                 ref={dateInput}
                 type="date"
                 required
+                max={archived ? zonedDay(now, account.time_zone) : undefined}
                 value={draft.date}
                 onChange={(event) => setDraft({ ...draft, date: event.currentTarget.value })}
               />
@@ -460,6 +465,11 @@ export function MeetingForm({
           {draft.date && draft.start && !start && (
             <p role="alert" className="meeting-error">
               {t("extra.meeting_invalid_time")}
+            </p>
+          )}
+          {startsInFuture && (
+            <p role="alert" className="meeting-error">
+              {t("extra.meeting_archived_past")}
             </p>
           )}
           {/* spec:impl meeting-form#default-duration-profile-session */}
@@ -520,6 +530,7 @@ export function MeetingForm({
                 <input
                   value={draft.price}
                   inputMode="decimal"
+                  disabled={archived}
                   onChange={(event) => {
                     const price = event.currentTarget.value;
                     // spec:impl meeting-form#make-paid-unavailable-price-client
@@ -564,6 +575,7 @@ export function MeetingForm({
                 <PaymentTypeChips
                   price={draft.price}
                   value={draft.paymentType}
+                  disabled={archived}
                   onChange={(paymentType) => setDraft({ ...draft, paymentType })}
                 />
               )}

@@ -343,11 +343,25 @@ function ClientEditor({ card, onChanged }: EditorProps): ReactElement {
   );
 }
 
+function ArchivedClientRedirect({ clientId }: { clientId: string }): ReactElement {
+  const router = useRouter();
+
+  useEffect(() => router.replace(clientPath(clientId)), [clientId, router]);
+
+  return <main aria-busy="true" />;
+}
+
 export default function ClientEditPage(): ReactElement {
   const { id } = useParams<{ id: string }>();
   return (
     <ClientCardScreen clientId={id}>
-      {({ card, setCard }) => <ClientEditor key={card.id} card={card} onChanged={setCard} />}
+      {({ card, setCard }) =>
+        card.status === "archived" ? (
+          <ArchivedClientRedirect clientId={card.id} />
+        ) : (
+          <ClientEditor key={card.id} card={card} onChanged={setCard} />
+        )
+      }
     </ClientCardScreen>
   );
 }

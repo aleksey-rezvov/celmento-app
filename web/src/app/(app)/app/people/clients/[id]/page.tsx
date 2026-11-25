@@ -1,11 +1,14 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useState, type ReactElement } from "react";
+import { ArchivedBanner } from "@/components/clients/ArchivedBanner";
 import { BalanceBlock } from "@/components/clients/card/BalanceBlock";
 import {
   ClientCardScreen,
   ClientScreen,
+  archivedClientsPath,
+  clientArchivePath,
   clientPath,
   clientsPath,
 } from "@/components/clients/card/ClientCardScreen";
@@ -18,9 +21,10 @@ import { QuickActions } from "@/components/clients/card/QuickActions";
 import { Sheet } from "@/components/shell/Sheet";
 import { useAppNavigation } from "@/components/shell/navigation";
 import { useAccount } from "@/lib/account";
-import type { Schemas } from "@/lib/api/client";
-import { formatDate } from "@/lib/format";
-import { useLanguage, useTranslation } from "@/lib/i18n";
+import { apiClient, errorCode, type Schemas } from "@/lib/api/client";
+import { useTranslation, type MessageKey } from "@/lib/i18n";
+import { limitScreenHref } from "@/lib/limit";
+import { getSessionToken } from "@/lib/session";
 
 interface ClientCardViewProps {
   card: Schemas["ClientCard"];
@@ -28,44 +32,81 @@ interface ClientCardViewProps {
 }
 
 function ClientCardView({ card, onChanged }: ClientCardViewProps): ReactElement {
-  const { account } = useAccount();
+  const { account, refresh } = useAccount();
+  const router = useRouter();
   const navigate = useAppNavigation();
   const t = useTranslation();
-  const language = useLanguage();
   const [menu, setMenu] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const [restoreError, setRestoreError] = useState<MessageKey | null>(null);
   const active = card.status === "active";
   const edit = active ? clientPath(card.id) + "/edit" : null;
   const bookingUrl = account.leader?.booking_url ?? account.address_url;
 
+  async function restore(): Promise<void> {
+    if (active || restoring) return;
+
+    const token = getSessionToken();
+    setMenu(false);
+    setRestoreError(null);
+    setRestoring(true);
+    try {
+      const { data, error } = await apiClient(token).POST("/clients/{client_id}/restore", {
+        params: { path: { client_id: card.id } },
+      });
+      if (getSessionToken() !== token) return;
+
+      const code = errorCode(error);
+      if (data || code === "client_not_archived") {
+        await refresh();
+        if (getSessionToken() === token) router.replace(clientsPath);
+      } else if (code === "client_limit_reached") {
+        // spec:impl client-archive-restore#open-limit-screen-restore-text
+        navigate(limitScreenHref("restore", { clientId: card.id }));
+      } else {
+        setRestoreError("extra.auth_request_failed");
+      }
+    } catch {
+      if (getSessionToken() === token) setRestoreError("extra.auth_network_error");
+    } finally {
+      setRestoring(false);
+    }
+  }
+
   return (
     <ClientScreen
       title={t("clients.title")}
-      back={clientsPath}
+      back={active ? clientsPath : archivedClientsPath}
       actions={
-        edit && (
-          <button
-            className="shell-icon-button"
-            type="button"
-            aria-label={t("extra.client_actions")}
-            onClick={() => setMenu(true)}
-          >
-            <span aria-hidden="true">…</span>
-          </button>
-        )
+        <button
+          className="shell-icon-button"
+          type="button"
+          aria-label={t("extra.client_actions")}
+          onClick={() => setMenu(true)}
+        >
+          <span aria-hidden="true">…</span>
+        </button>
       }
     >
-      {card.archived_at && (
-        <p className="client-archived">
-          {t("client.archived_banner", {
-            [language === "ru" ? "дата" : "date"]: formatDate(
-              card.archived_at,
-              account.time_zone,
-              language,
-            ),
-          })}
-        </p>
+      {!active && (
+        <section className="client-archive-banner">
+          {card.archived_at && <ArchivedBanner archivedAt={card.archived_at} />}
+          <button
+            type="button"
+            className="shell-primary client-restore"
+            disabled={restoring}
+            onClick={() => void restore()}
+          >
+            {t("archive.restore")}
+          </button>
+          {restoreError && (
+            <p role="alert" className="client-error">
+              {t(restoreError)}
+            </p>
+          )}
+        </section>
       )}
-      <div className="client-card-detail">
+      <div className="client-card-detail" data-archived={!active}>
         <ClientHeader card={card} />
         <QuickActions card={card} />
         <BalanceBlock card={card} />
@@ -94,18 +135,43 @@ function ClientCardView({ card, onChanged }: ClientCardViewProps): ReactElement 
           fields={[{ label: "client.hypotheses", value: card.hypotheses }]}
         />
       </div>
-      {menu && edit && (
+      {/* spec:impl client-card-view-edit#offer-three-dot-menu-screen-6-1 */}
+      {menu && (
         <Sheet title={t("extra.client_actions")} onClose={() => setMenu(false)}>
-          <button
-            type="button"
-            className="shell-primary"
-            onClick={() => {
-              setMenu(false);
-              navigate(edit);
-            }}
-          >
-            {t("card.edit")}
-          </button>
+          {edit ? (
+            <div className="client-archive-actions">
+              <button
+                type="button"
+                className="shell-primary"
+                onClick={() => {
+                  setMenu(false);
+                  navigate(edit);
+                }}
+              >
+                {t("card.edit")}
+              </button>
+              <button
+                type="button"
+                className="shell-secondary"
+                onClick={() => {
+                  setMenu(false);
+                  // spec:impl client-archive-restore#open-confirmation-screen-5-4-titled
+                  navigate(clientArchivePath(card.id));
+                }}
+              >
+                {t("archive.action")}
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="shell-primary client-restore"
+              disabled={restoring}
+              onClick={() => void restore()}
+            >
+              {t("archive.restore")}
+            </button>
+          )}
         </Sheet>
       )}
     </ClientScreen>
