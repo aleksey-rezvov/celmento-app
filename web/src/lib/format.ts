@@ -36,16 +36,22 @@ export function formatDate(
   }).format(new Date(instant));
 }
 
+export function utcOffset(timeZone: string, at: Date): string {
+  return (
+    new Intl.DateTimeFormat("en-GB", {
+      timeZone,
+      timeZoneName: "shortOffset",
+    })
+      .formatToParts(at)
+      .find(({ type }) => type === "timeZoneName")
+      ?.value.replace(/^GMT/u, "") ?? ""
+  );
+}
+
 export function zoneLabel(timeZone: string, at: Date, language: Language): string {
-  const offset = new Intl.DateTimeFormat("en-GB", {
-    timeZone,
-    timeZoneName: "shortOffset",
-  })
-    .formatToParts(at)
-    .find(({ type }) => type === "timeZoneName")
-    ?.value.replace("GMT", "UTC");
+  const offset = utcOffset(timeZone, at);
   // spec:impl time-zone-handling#zone-label-city-offset
-  return zoneCity(timeZone, language) + " (" + (offset ?? "UTC") + ")";
+  return zoneCity(timeZone, language) + " (UTC" + offset + ")";
 }
 
 export function zoneCity(timeZone: string, language: Language): string {

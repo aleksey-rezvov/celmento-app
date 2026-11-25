@@ -70,6 +70,22 @@ def test_implemented_operations_match_contract(
             ), label
 
 
+def test_public_calendar_responses_use_calendar_media_type() -> None:
+    paths = _object(api.openapi()["paths"], "generated paths")
+    for path in (
+        "/public/bookings/{booking_id}/calendar.ics",
+        "/public/specialists/{login}/meet/{meeting_id}/calendar.ics",
+    ):
+        operation = _object(_object(paths[path], path)["get"], path)
+        response = _object(_object(operation["responses"], path)["200"], path)
+        content = _object(response["content"], path)
+        assert set(content) == {"text/calendar"}
+        media = _object(content["text/calendar"], path)
+        schema = _object(media["schema"], path)
+        assert schema["$ref"] == "#/components/schemas/BookingCalendarEvent"
+        assert schema.get("type", "string") == "string"
+
+
 def test_api_enumerations_match_contract(openapi_contract: dict[str, object]) -> None:
     components = _object(openapi_contract["components"], "contract components")
     schemas = _object(components["schemas"], "contract schemas")
@@ -145,6 +161,13 @@ def test_write_requests_use_named_schemas() -> None:
             "put",
             "application/json",
             "NoteChecklistTicks",
+        ),
+        ("/public/bookings", "post", "application/json", "GuestBookingCreate"),
+        (
+            "/public/specialists/{login}/meet/{meeting_id}/join",
+            "post",
+            "application/json",
+            "SignInCodeRequest",
         ),
     ):
         operation = _object(_object(paths[path], path)[method], method)

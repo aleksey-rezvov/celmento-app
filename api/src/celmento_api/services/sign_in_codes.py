@@ -17,6 +17,11 @@ from celmento_api.emails import EmailTemplate, send_email
 from celmento_api.errors import AppError
 from celmento_api.models.account import Account
 from celmento_api.models.enums import ErrorCode, Language
+from celmento_api.schemas.auth import (
+    CodeRequestOutcome,
+    SignInCodeRequest,
+    SignInCodeRequestResult,
+)
 
 CODE_VALID_SECONDS: int = 10 * 60
 RESEND_SECONDS: int = 60
@@ -51,6 +56,23 @@ def normalize_email(value: str) -> str:
 async def find_account(session: AsyncSession, email: str) -> Account | None:
     # spec:impl email-code-sign-in#look-up-entry-contour
     return await session.scalar(select(Account).where(Account.email == email))
+
+
+async def request_sign_in_code(
+    session: AsyncSession, body: SignInCodeRequest
+) -> SignInCodeRequestResult:
+    email = normalize_email(body.email)
+    account = await find_account(session, email)
+    if account is None:
+        # spec:impl email-code-sign-in#route-unknown-email-to-registration
+        return SignInCodeRequestResult(
+            outcome=CodeRequestOutcome.REGISTRATION_REQUIRED, first_name=None
+        )
+    # spec:impl email-code-sign-in#send-six-digit-code
+    await send_code(email, body.language)
+    return SignInCodeRequestResult(
+        outcome=CodeRequestOutcome.CODE_SENT, first_name=account.first_name
+    )
 
 
 def _digest(payload: bytes) -> bytes:

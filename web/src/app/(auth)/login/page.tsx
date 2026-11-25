@@ -9,21 +9,22 @@ import { useLanguage, useTranslation, type MessageKey } from "@/lib/i18n";
 import {
   loadEmail,
   parseRegistrationOrigin,
+  prepareSignInHandoff,
   resumeCode,
   resumePath,
   saveCode,
   saveEmail,
-  saveOrigin,
   saveSignupEmail,
   startCode,
+  type SignInHandoff,
 } from "@/lib/registration";
 
-function readLink() {
+function readLink(): SignInHandoff | null {
   const url = new URL(window.location.href);
-  return {
-    email: url.searchParams.get("email"),
-    origin: parseRegistrationOrigin(url.searchParams.get("origin")),
-  };
+  const rawEmail = url.searchParams.get("email");
+  const email = rawEmail && validEmail(rawEmail) ? normalizeEmail(rawEmail) : null;
+  const origin = parseRegistrationOrigin(url.searchParams.get("origin"));
+  return email || origin ? { email, origin } : null;
 }
 
 export default function Login(): ReactElement | null {
@@ -33,25 +34,15 @@ export default function Login(): ReactElement | null {
   const input = useId();
   const hint = input + "-hint";
   const [link] = useState(readLink);
-  const [next] = useState(resumePath);
-  const [email, setEmail] = useState(() => link.email ?? loadEmail());
+  const [next] = useState(() => resumePath(link ?? undefined));
+  const [email, setEmail] = useState(() => link?.email ?? loadEmail());
   const [error, setError] = useState<MessageKey | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const valid = validEmail(email);
   const showInvalid = (email !== "" && !valid) || error === "extra.auth_email_invalid";
 
   useEffect(() => {
-    if (next && next !== "/login") {
-      router.replace(next);
-      return;
-    }
-
-    if (link.origin) {
-      saveOrigin(link.origin);
-    }
-    if (link.email) {
-      saveEmail(link.email);
-    }
+    if (link) prepareSignInHandoff(link);
 
     const url = new URL(window.location.href);
     url.searchParams.delete("email");
@@ -59,6 +50,7 @@ export default function Login(): ReactElement | null {
     if (url.href !== window.location.href) {
       window.history.replaceState(window.history.state, "", url.pathname + url.search);
     }
+    if (next && next !== "/login") router.replace(next);
   }, [link, next, router]);
 
   async function sendCode(event: FormEvent<HTMLFormElement>): Promise<void> {

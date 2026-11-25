@@ -1,6 +1,7 @@
 from asyncio import gather, timeout
 from collections.abc import Mapping
 from datetime import UTC, date, datetime, timedelta
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -511,7 +512,10 @@ async def test_meeting_embeds_scoped_client_photo_and_linked_zone(
         saved.client_card is not None
         and saved.client_card.email == " private reference "
     )
-    assert saved.invite_url == f"{owner.account.address_url}/meet/{saved.id}"
+    # spec:test meeting-invite-page#make-meeting-id-address-random
+    assert saved.invite_url is not None
+    assert saved.invite_url.startswith(f"{owner.account.address_url}/meet/")
+    assert UUID(saved.invite_url.rsplit("/", 1)[-1]).version == 4
     linked = await client.put(
         f"{CLIENTS}/{card.id}/link",
         json={"login": attendee.account.login},

@@ -44,8 +44,12 @@ class Acceptance(Base):
     __tablename__ = "acceptance"
     __table_args__ = (
         CheckConstraint(
-            "(account_id IS NULL) <> (meeting_id IS NULL)",
+            "(account_id IS NULL) <> (guest_booking_id IS NULL)",
             name="acceptance_has_one_subject",
+        ),
+        CheckConstraint(
+            "meeting_id IS NULL OR (guest_booking_id IS NOT NULL AND meeting_id = guest_booking_id)",
+            name="acceptance_live_meeting_matches_booking",
         ),
         CheckConstraint(
             "(kind = 'age_confirmation') = (version IS NULL)",
@@ -59,7 +63,10 @@ class Acceptance(Base):
     account_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("account.account_id", ondelete="RESTRICT"), index=True
     )
-    meeting_id: Mapped[UUID | None] = mapped_column(index=True)
+    meeting_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("meeting.meeting_id", ondelete="SET NULL"), index=True
+    )
+    guest_booking_id: Mapped[UUID | None] = mapped_column(index=True)
     kind: Mapped[str] = mapped_column(Text)
     version: Mapped[str | None] = mapped_column(Text)
     accepted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

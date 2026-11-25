@@ -2,7 +2,7 @@ from functools import cache
 from pathlib import Path
 from typing import ClassVar
 
-from pydantic import SecretStr, field_validator
+from pydantic import AnyHttpUrl, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from celmento_api.models.enums import Contour
@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     contour: Contour
     web_url_ru: str
     web_url_world: str
+    public_api_url: AnyHttpUrl | None = None
     session_secret: SecretStr
     registration_private_key: SecretStr
     registration_public_key_ru: str
@@ -38,6 +39,19 @@ class Settings(BaseSettings):
     @classmethod
     def resolve_media_dir(cls, value: Path) -> Path:
         return REPOSITORY_ROOT / value
+
+    @field_validator("public_api_url")
+    @classmethod
+    def validate_public_api_url(cls, value: AnyHttpUrl | None) -> AnyHttpUrl | None:
+        if value is not None and (
+            (value.path or "").rstrip("/") not in ("", API_PREFIX)
+            or value.username is not None
+            or value.password is not None
+            or value.query is not None
+            or value.fragment is not None
+        ):
+            raise ValueError("Expected a public API origin or its /api/v1 URL")
+        return value
 
 
 @cache

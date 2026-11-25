@@ -10,7 +10,6 @@ from celmento_api.models.enums import ErrorCode, LoginAvailabilityStatus
 from celmento_api.schemas.auth import (
     AccountRegistration,
     AccountRegistrationResult,
-    CodeRequestOutcome,
     FinishRegistrationResult,
     LoginAvailability,
     RegistrationFinish,
@@ -39,6 +38,7 @@ from celmento_api.services.sign_in_codes import (
     claim_code,
     find_account,
     normalize_email,
+    request_sign_in_code,
     send_code,
 )
 from celmento_api.storage import media_origin
@@ -56,18 +56,7 @@ router: APIRouter = APIRouter(prefix="/auth", tags=["auth"])
 async def request_code(
     body: SignInCodeRequest, session: Database
 ) -> SignInCodeRequestResult:
-    email = normalize_email(body.email)
-    account = await find_account(session, email)
-    if account is None:
-        # spec:impl email-code-sign-in#route-unknown-email-to-registration
-        return SignInCodeRequestResult(
-            outcome=CodeRequestOutcome.REGISTRATION_REQUIRED, first_name=None
-        )
-    # spec:impl email-code-sign-in#send-six-digit-code
-    await send_code(email, body.language)
-    return SignInCodeRequestResult(
-        outcome=CodeRequestOutcome.CODE_SENT, first_name=account.first_name
-    )
+    return await request_sign_in_code(session, body)
 
 
 @router.post(
@@ -120,13 +109,13 @@ async def verify(
             raise AppError(400, ErrorCode.REGISTRATION_REQUIRED)
         if body.registration_device_key is None:
             raise AppError(400, ErrorCode.REGISTRATION_PACKAGE_INVALID)
-        origin = await validate_registration(session, registration)
+        origin, inviter_id = await validate_registration(session, registration)
         # spec:impl registration-finish-screen#defer-account-until-finish
         return SignInCodeVerificationResult(
             outcome=VerificationOutcome.REGISTRATION_CONFIRMED,
             session=None,
             registration_package=issue_package(
-                email, registration, origin, body.registration_device_key
+                email, registration, origin, body.registration_device_key, inviter_id
             ),
         )
 

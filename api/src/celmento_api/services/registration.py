@@ -1,4 +1,5 @@
-from sqlalchemy import select
+from uuid import UUID
+
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +15,7 @@ from celmento_api.schemas.auth import (
     RegistrationFinish,
     RegistrationOrigin,
 )
+from celmento_api.services.account_hooks import notify_inviter
 from celmento_api.services.activation import (
     record_activation,
     require_activation_consents,
@@ -25,6 +27,7 @@ from celmento_api.services.legal import (
 )
 from celmento_api.services.links import auto_link_for_account
 from celmento_api.services.logins import require_available_login
+from celmento_api.services.public_pages import invited_meeting, public_leader
 from celmento_api.services.registration_package import (
     DeviceProofPurpose,
     verify_package,
@@ -36,7 +39,7 @@ from celmento_api.services.sign_in_codes import find_account
 async def validate_registration(
     session: AsyncSession,
     registration: AccountRegistration,
-) -> RegistrationOrigin | None:
+) -> tuple[RegistrationOrigin | None, UUID | None]:
     await require_consents(
         session,
         registration.consents,
@@ -45,17 +48,34 @@ async def validate_registration(
     )
     origin = registration.origin
     if origin is None:
-        return None
-    if origin.page != OriginPage.PUBLIC_BOOKING or origin.meeting_id is not None:
+        return None, None
+    if origin.page == OriginPage.MEETING_INVITE:
+        if origin.meeting_id is None:
+            raise AppError(400, ErrorCode.ORIGIN_INVALID)
+        invited = await invited_meeting(session, origin.login, origin.meeting_id)
+        if invited is None:
+            raise AppError(400, ErrorCode.ORIGIN_INVALID)
+        leader, meeting = invited
+        return (
+            RegistrationOrigin(
+                page=origin.page,
+                login=leader.login,
+                meeting_id=meeting.public_id,
+                specialist_first_name=leader.first_name,
+            ),
+            leader.account_id,
+        )
+    if origin.meeting_id is not None:
         raise AppError(400, ErrorCode.ORIGIN_INVALID)
-    leader = await session.scalar(
-        select(Account).where(
-            Account.login == origin.login.lower(), Account.activated_at.is_not(None)
-        ),
-    )
-    if leader is None:
-        raise AppError(400, ErrorCode.ORIGIN_INVALID)
-    return RegistrationOrigin(page=origin.page, login=leader.login, meeting_id=None)
+    try:
+        leader = await public_leader(session, origin.login)
+    except AppError as exc:
+        if exc.code != ErrorCode.NOT_FOUND:
+            raise
+        raise AppError(400, ErrorCode.ORIGIN_INVALID) from None
+    return RegistrationOrigin(
+        page=origin.page, login=leader.login, meeting_id=None
+    ), None
 
 
 async def finish_registration(
@@ -112,7 +132,9 @@ async def finish_registration(
     )
     if activation is not None:
         await record_activation(session, account, activation)
+    # spec:impl meeting-invite-page#link-card-new-account-add
     await auto_link_for_account(session, account)
+    await notify_inviter(session, account, claims.inviter_id, body.notify_specialist)
     if local_registration:
         return FinishRegistrationResult(
             outcome=FinishOutcome.SESSION,

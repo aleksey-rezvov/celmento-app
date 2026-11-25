@@ -2052,6 +2052,7 @@ export interface components {
     };
     PublicSpecialistPage: {
       login: string;
+      booking_context: string;
       first_name: string;
       last_name: string;
       photo_url: string | null;
@@ -2066,9 +2067,11 @@ export interface components {
     BookingSlotList: {
       items: components["schemas"]["Slot"][];
       next_free_date: string | null;
+      has_available_slots: boolean;
     };
     GuestBookingCreate: {
       login: string;
+      booking_context: string;
       starts_at: string;
       name: string;
       email: string;
@@ -2098,6 +2101,7 @@ export interface components {
       duration_minutes: components["schemas"]["DurationMinutes"];
       place: components["schemas"]["MeetingPlace"];
       meeting_link: string | null;
+      address: string | null;
     };
     SpecialistRef: {
       id: string;
@@ -4272,7 +4276,9 @@ export interface operations {
   createGuestBooking: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        "Idempotency-Key"?: string;
+      };
       path?: never;
       cookie?: never;
     };
@@ -4317,6 +4323,7 @@ export interface operations {
         };
       };
       404: components["responses"]["NotFound"];
+      422: components["responses"]["ValidationError"];
       500: components["responses"]["InternalError"];
     };
   };
@@ -4340,6 +4347,7 @@ export interface operations {
         };
       };
       404: components["responses"]["NotFound"];
+      422: components["responses"]["ValidationError"];
       500: components["responses"]["InternalError"];
     };
   };
@@ -4364,6 +4372,7 @@ export interface operations {
         };
       };
       404: components["responses"]["NotFound"];
+      422: components["responses"]["ValidationError"];
       500: components["responses"]["InternalError"];
     };
   };

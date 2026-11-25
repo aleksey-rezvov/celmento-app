@@ -41,6 +41,7 @@ DEFAULT_CURRENCY: Currency = Currency.RUB
 DEFAULT_WORK_START: time = time(10)
 DEFAULT_WORK_END: time = time(18)
 DAYS_OFF: frozenset[Weekday] = frozenset({Weekday.SAT, Weekday.SUN})
+type WorkingHours = tuple[bool, time, time]
 
 
 async def leader_record(session: AsyncSession, account_id: UUID) -> LeaderRecord:
@@ -72,16 +73,22 @@ async def _working_days(
     return {Weekday(day.weekday): day for day in days}
 
 
-def _default_working_day(weekday: Weekday) -> tuple[bool, time, time]:
+def _default_working_day(weekday: Weekday) -> WorkingHours:
     return weekday not in DAYS_OFF, DEFAULT_WORK_START, DEFAULT_WORK_END
 
 
-def _working_day_view(weekday: Weekday, row: WorkingDayRecord | None) -> WorkingDay:
-    working, start, end = (
-        _default_working_day(weekday)
-        if row is None
-        else (row.working, row.start_time, row.end_time)
-    )
+async def effective_working_hours(
+    session: AsyncSession, account_id: UUID
+) -> dict[Weekday, WorkingHours]:
+    overrides = await _working_days(session, account_id)
+    hours = {weekday: _default_working_day(weekday) for weekday in Weekday}
+    for weekday, row in overrides.items():
+        hours[weekday] = row.working, row.start_time, row.end_time
+    return hours
+
+
+def _working_day_view(weekday: Weekday, hours: WorkingHours) -> WorkingDay:
+    working, start, end = hours
     return WorkingDay(
         weekday=weekday,
         working=working,
@@ -92,7 +99,7 @@ def _working_day_view(weekday: Weekday, row: WorkingDayRecord | None) -> Working
 
 async def leader_view(session: AsyncSession, account: Account) -> LeaderProfile:
     profile = await leader_record(session, account.account_id)
-    days = await _working_days(session, account.account_id)
+    days = await effective_working_hours(session, account.account_id)
     return LeaderProfile(
         specializations=[Specialization(item) for item in profile.specializations],
         specialization_other=profile.specialization_other,
@@ -104,7 +111,7 @@ async def leader_view(session: AsyncSession, account: Account) -> LeaderProfile:
         else None,
         booking_url=address_url(account.login),
         # spec:impl working-hours-booking-rules#give-new-leader-monday-friday
-        working_hours=[_working_day_view(day, days.get(day)) for day in Weekday],
+        working_hours=[_working_day_view(day, hours) for day, hours in days.items()],
         session_duration_minutes=profile.session_duration_minutes
         or DEFAULT_SESSION_DURATION,
         session_format=SessionFormat(profile.session_format or DEFAULT_SESSION_FORMAT),

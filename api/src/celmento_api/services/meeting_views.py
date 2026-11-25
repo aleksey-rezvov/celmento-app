@@ -103,7 +103,7 @@ def meeting_view(
         comment=meeting.comment,
         source=MeetingSource(meeting.source),
         client_comment=meeting.client_comment,
-        invite_url=f"{address_url(leader.login)}/meet/{meeting.meeting_id}"
+        invite_url=f"{address_url(leader.login)}/meet/{meeting.public_id}"
         if meeting.type == MeetingType.CLIENT_SESSION.value
         else None,
         awaiting_outcome=awaiting_outcome(meeting, now),

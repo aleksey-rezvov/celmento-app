@@ -2,6 +2,7 @@ from base64 import b64decode, urlsafe_b64encode
 from binascii import Error as Base64Error
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from uuid import UUID
 
 from cryptography.exceptions import InvalidSignature, UnsupportedAlgorithm
 from cryptography.hazmat.primitives import hashes
@@ -30,6 +31,10 @@ from celmento_api.schemas.auth import (
 
 PACKAGE_LIFETIME: timedelta = timedelta(hours=24)
 DEVICE_PROOF_BYTES: int = 64
+
+
+class _SignedRegistrationClaims(RegistrationPackageClaims):
+    inviter_id: UUID | None = None
 
 
 class DeviceProofPurpose(StrEnum):
@@ -114,13 +119,14 @@ def issue_package(
     registration: AccountRegistration,
     origin: RegistrationOrigin | None,
     device_public_key: str,
+    inviter_id: UUID | None,
 ) -> RegistrationPackage:
     try:
         _device_key(device_public_key)
     except TypeError, ValueError, Base64Error, UnsupportedAlgorithm:
         raise AppError(400, ErrorCode.REGISTRATION_PACKAGE_INVALID) from None
     now = datetime.now(UTC)
-    claims = RegistrationPackageClaims(
+    claims = _SignedRegistrationClaims(
         email=email,
         first_name=registration.first_name,
         last_name=registration.last_name,
@@ -132,8 +138,10 @@ def issue_package(
         code_confirmed=True,
         issued_at=now,
         expires_at=now + PACKAGE_LIFETIME,
+        inviter_id=inviter_id,
     )
-    payload = claims.model_dump_json().encode("utf-8")
+    excluded = {"inviter_id"} if inviter_id is None else None
+    payload = claims.model_dump_json(exclude=excluded).encode("utf-8")
     # spec:impl registration-finish-screen#sign-device-registration-package
     return RegistrationPackage(
         token=f"{_encode(payload)}.{_encode(_private_key().sign(payload))}",
@@ -143,11 +151,11 @@ def issue_package(
 
 def verify_package(
     token: str, proof: str, purpose: DeviceProofPurpose
-) -> RegistrationPackageClaims:
+) -> _SignedRegistrationClaims:
     try:
         encoded, signature = token.split(".")
         payload = _decode(encoded)
-        claims = RegistrationPackageClaims.model_validate_json(payload)
+        claims = _SignedRegistrationClaims.model_validate_json(payload)
         # spec:impl region-contours#verify-package-offline
         _public_key(claims.entry_contour).verify(_decode(signature), payload)
         _verify_device_proof(claims, token, proof, purpose)
@@ -167,6 +175,7 @@ def verify_package(
         raise AppError(400, ErrorCode.REGISTRATION_PACKAGE_INVALID)
     if claims.expires_at <= datetime.now(UTC):
         raise AppError(400, ErrorCode.REGISTRATION_PACKAGE_EXPIRED)
+    # spec:impl meeting-invite-page#create-new-account-leader-contour
     if claims.origin is not None and current_contour() != claims.entry_contour:
         raise AppError(400, ErrorCode.REGION_LOCKED)
     return claims
