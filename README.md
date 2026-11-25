@@ -28,10 +28,16 @@ docker compose up -d --wait
 
 PostgreSQL listens on `127.0.0.1:5433`. The first start provisions both `celmento_app` and `celmento_app_test`. Mailpit listens on SMTP port `1025` and has a web inbox at `http://127.0.0.1:8025`.
 
+Apply schema changes to an existing database with `uv run --locked alembic upgrade head` from `api/`. Bootstrap an empty database with `api/scripts/schema-snapshot.sh restore` from the repository root. The command restores the generated schema and records the Alembic revision. Compare an upgraded database with `api/scripts/schema-snapshot.sh check`.
+
+The API sends development mail to the SMTP host and port in `.env`. Run each contour with its own database, session secret, registration signing key, and SMTP inbox. Configure the two verification keys and the web and API origins in `.env`.
+
 Start the API from `api/`.
 
 ```sh
 uv sync --locked
+uv run --locked alembic upgrade head
+uv run --locked python -m celmento_api.seed --draft-documents
 uv run uvicorn celmento_api.main:app --host 127.0.0.1 --port 8000
 ```
 

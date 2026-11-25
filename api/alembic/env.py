@@ -1,10 +1,14 @@
 import asyncio
+from importlib import import_module
 
 from sqlalchemy.engine import Connection
 
 from alembic import context
 from celmento_api.config import get_settings
 from celmento_api.db import Base, engine
+
+import_module("celmento_api.models.account")
+import_module("celmento_api.models.legal")
 
 
 def run_migrations_offline() -> None:
