@@ -185,3 +185,17 @@ class MeetingDefaults(BaseModel):
 class ClientMeetingList(BaseModel):
     upcoming: list[Meeting]
     past: list[Meeting]
+
+
+ArchivePreviewToken = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+
+
+class ClientArchiveConfirm(BaseModel, extra="forbid"):
+    preview_token: ArchivePreviewToken
+
+
+class ClientArchivePreview(BaseModel):
+    preview_token: ArchivePreviewToken
+    meetings_to_delete: list[Meeting]
+    meetings_awaiting_outcome: list[Meeting]
+    balance: Money

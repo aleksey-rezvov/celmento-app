@@ -50,6 +50,19 @@ async def leader_record(session: AsyncSession, account_id: UUID) -> LeaderRecord
     return profile
 
 
+def leader_contact(
+    account: Account, profile: LeaderRecord, channel: str | None
+) -> str | None:
+    if channel is None:
+        return None
+    return {
+        ContactChannel.PHONE.value: account.phone,
+        ContactChannel.TELEGRAM.value: account.telegram,
+        ContactChannel.WHATSAPP.value: account.whatsapp,
+        ContactChannel.EMAIL.value: profile.contact_email,
+    }.get(channel)
+
+
 async def _working_days(
     session: AsyncSession, account_id: UUID
 ) -> dict[Weekday, WorkingDayRecord]:
@@ -226,13 +239,9 @@ def _update_leader(
         if profile.main_channel is not None
         else None,
     )
-    contacts: dict[ContactChannel, str | None] = {
-        ContactChannel.PHONE: account.phone,
-        ContactChannel.TELEGRAM: account.telegram,
-        ContactChannel.WHATSAPP: account.whatsapp,
-        ContactChannel.EMAIL: profile.contact_email,
-    }
-    contact = contacts.get(channel) if channel is not None else None
+    contact = leader_contact(
+        account, profile, channel.value if channel is not None else None
+    )
     profile.main_channel = (
         channel.value if channel is not None and contact and contact.strip() else None
     )

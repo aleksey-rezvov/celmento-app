@@ -234,6 +234,8 @@ async def delete_meeting(
     card: ClientCard | None,
     refund: bool | None,
 ) -> None:
+    if card is not None and card.status == ClientCardStatus.ARCHIVED.value:
+        raise AppError(409, ErrorCode.MEETING_CLIENT_ARCHIVED)
     charge = client_charge(meeting)
     if charge > 0:
         if refund is None:
