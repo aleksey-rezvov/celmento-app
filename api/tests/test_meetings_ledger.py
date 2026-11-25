@@ -162,6 +162,15 @@ async def test_outcome_changes_reconcile_the_ledger_and_keep_deleted_charge(
         await client.patch(path, json={"payment_type": "paid"}, headers=headers)
     )
     assert paid.balance_charge is not None and paid.balance_charge.amount == "120.35"
+    final_start = start + timedelta(days=1)
+    moved = meeting_from(
+        await client.patch(
+            path, json={"starts_at": final_start.isoformat()}, headers=headers
+        )
+    )
+    assert (
+        moved.starts_at == final_start and moved.status == MeetingStatus.NOT_TAKEN_PLACE
+    )
     problem(
         await client.delete(path, headers=headers),
         400,
@@ -189,6 +198,7 @@ async def test_outcome_changes_reconcile_the_ledger_and_keep_deleted_charge(
         "-20.1",
         "-100.25",
     ]
+    assert ledger.items[0].date == final_start.date()
     assert all(row.meeting_id is None and not row.editable for row in ledger.items)
 
 
@@ -468,16 +478,25 @@ async def test_service_expense_corrections_keep_exact_deltas_until_delete(
     )
     assert switched.price is not None
     assert (switched.price.currency, switched.price.amount) == (Currency.EUR, "179.25")
+    updated_outcome = {"status": "completed", "price": "180"}
+    for _ in range(2):
+        result = meeting_from(
+            await client.put(path + "/outcome", json=updated_outcome, headers=headers)
+        )
+        assert result.price is not None and result.price.amount == "180"
     async with account_stand.session() as session:
         rows = await session.scalars(
             select(MeetingExpenseCorrection).where(
                 MeetingExpenseCorrection.meeting_id == service.id
             )
         )
-        assert {(entry.currency, entry.amount) for entry in rows} == {
+        deltas = [(entry.currency, entry.amount) for entry in rows]
+        assert len(deltas) == 4
+        assert set(deltas) == {
             ("RUB", Decimal(50)),
             ("RUB", Decimal(-150)),
             ("EUR", Decimal("179.25")),
+            ("EUR", Decimal("0.75")),
         }
     assert (await client.delete(path, headers=headers)).status_code == 204
     async with account_stand.session() as session:

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -139,6 +139,11 @@ async def record_outcome(
 
     previous_status = meeting.status
     previous_charge = client_charge(meeting)
+    previous_expense = (
+        service_expense(meeting)
+        if outcome["status"] == MeetingOutcomeStatus.COMPLETED and "price" in outcome
+        else None
+    )
     own_practice = meeting.type == MeetingType.MUTUAL_PRACTICE.value
     if outcome["status"] == MeetingOutcomeStatus.COMPLETED:
         price = meeting.price
@@ -169,6 +174,8 @@ async def record_outcome(
     meeting.updated_at = now
 
     if card is None:
+        if previous_expense is not None:
+            correct_service_expense(session, meeting, previous_expense)
         return
 
     charge = client_charge(meeting)
@@ -197,7 +204,9 @@ async def record_outcome(
         await _add_charge_operation(session, leader, meeting, card, kind, -charge)
 
 
-async def _relabel_kept_charge(session: AsyncSession, meeting: Meeting) -> None:
+async def _relabel_kept_charge(
+    session: AsyncSession, meeting: Meeting, meeting_day: date
+) -> None:
     operations = await session.scalars(
         select(BalanceOperation)
         .where(BalanceOperation.meeting_id == meeting.meeting_id)
@@ -215,6 +224,7 @@ async def _relabel_kept_charge(session: AsyncSession, meeting: Meeting) -> None:
         raise AppError(500, ErrorCode.INTERNAL_ERROR)
     # spec:impl meeting-reschedule-cancel-delete#keep-charge-balance-history-leader
     first_charge.kind = BalanceOperationKind.DELETED_MEETING_CHARGE.value
+    first_charge.date = meeting_day
 
 
 async def delete_meeting(
@@ -239,7 +249,9 @@ async def delete_meeting(
                 charge,
             )
         else:
-            await _relabel_kept_charge(session, meeting)
+            await _relabel_kept_charge(
+                session, meeting, local_day(meeting.starts_at, leader.time_zone)
+            )
     # spec:impl meeting-reschedule-cancel-delete#let-scheduled-meeting-time-passed
     # spec:impl meeting-reschedule-cancel-delete#introduce-rescheduled-cancelled-status
     await session.delete(meeting)
