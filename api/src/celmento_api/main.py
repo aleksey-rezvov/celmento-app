@@ -17,6 +17,7 @@ from celmento_api.routers import (
     clients,
     documents,
     feedback,
+    meetings,
     notices,
 )
 
@@ -45,6 +46,7 @@ api: FastAPI = FastAPI(
         {"name": "clients"},
         {"name": "documents"},
         {"name": "feedback"},
+        {"name": "meetings"},
         {"name": "notices"},
     ],
 )
@@ -56,6 +58,7 @@ api.include_router(balance.router)
 api.include_router(clients.router)
 api.include_router(documents.router)
 api.include_router(feedback.router)
+api.include_router(meetings.router)
 api.include_router(notices.router)
 
 app: FastAPI = FastAPI(

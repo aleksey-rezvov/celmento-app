@@ -47,7 +47,14 @@ class BalanceOperation(Base):
     currency_version: Mapped[int] = mapped_column()
     date: Mapped[LocalDate] = mapped_column()
     comment: Mapped[str | None] = mapped_column(Text)
-    meeting_id: Mapped[UUID | None] = mapped_column(index=True)
+    meeting_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey(
+            "meeting.meeting_id",
+            name="fk_balance_operation_meeting_id",
+            ondelete="SET NULL",
+        ),
+        index=True,
+    )
     created_by_system: Mapped[bool] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()")

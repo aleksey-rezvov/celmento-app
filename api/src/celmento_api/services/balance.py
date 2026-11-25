@@ -124,17 +124,25 @@ async def add_operation(
     comment: str | None,
     meeting_id: UUID | None,
     by_system: bool,
+    *,
+    currency_period: tuple[str, int] | None = None,
 ) -> BalanceOperation:
+    currency, version = (
+        currency_period
+        if currency_period is not None
+        else (card.currency, card.currency_version)
+    )
     operation = BalanceOperation(
         client_card_id=card.client_card_id,
         kind=kind.value,
         amount=amount,
-        currency=card.currency,
-        currency_version=card.currency_version,
+        currency=currency,
+        currency_version=version,
         date=on,
         comment=comment,
         meeting_id=meeting_id,
         created_by_system=by_system,
+        created_at=func.clock_timestamp(),
     )
     session.add(operation)
     await session.flush()

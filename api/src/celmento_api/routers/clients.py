@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
@@ -17,6 +18,8 @@ from celmento_api.schemas.clients import (
     ClientUpdate,
     IdempotencyKey,
 )
+from celmento_api.schemas.meetings import ClientMeetingList
+from celmento_api.services.account_access import lock_account
 from celmento_api.services.client_requests import (
     client_write_request,
     previous_client,
@@ -31,6 +34,7 @@ from celmento_api.services.clients import (
     update_client_card,
 )
 from celmento_api.services.links import link_by_login, unlink
+from celmento_api.services.meeting_views import list_client_meetings
 from celmento_api.storage import (
     PHOTO_CONTENT_TYPES,
     client_photo_directory,
@@ -105,6 +109,7 @@ async def get_client(
     card = await owned_client(session, leader.account_id, client_id, lock=True)
     result = await client_view(session, card, media_origin(request))
     if card.is_new:
+        # spec:impl client-list#remove-new-badge-soon-client-first
         card.is_new = False
         await session.commit()
     return result
@@ -124,6 +129,8 @@ async def patch_client(
     leader: LeaderAccount,
     session: Database,
 ) -> ClientCard:
+    if "currency" in body.root:
+        leader = await lock_account(session, leader.account_id, no_key_update=True)
     card = await active_client_for_update(session, leader.account_id, client_id)
     await update_client_card(session, card, body.root)
     result = await client_view(session, card, media_origin(request))
@@ -249,3 +256,23 @@ async def unlink_client(
     result = await client_view(session, card, media_origin(request))
     await session.commit()
     return result
+
+
+@router.get(
+    "/{client_id}/meetings",
+    operation_id="listClientCardMeetings",
+    summary="List meetings with a client",
+    response_model=ClientMeetingList,
+    responses=error_responses(401, 403, 404, 422, 500),
+)
+async def client_meetings(
+    request: Request,
+    client_id: UUID,
+    leader: LeaderAccount,
+    session: Database,
+    limit: Annotated[int | None, Query(ge=1)] = None,
+) -> ClientMeetingList:
+    card = await owned_client(session, leader.account_id, client_id)
+    return await list_client_meetings(
+        session, leader, card, media_origin(request), datetime.now(UTC), limit
+    )

@@ -1,6 +1,4 @@
 from dataclasses import dataclass
-from hashlib import sha256
-from json import dumps
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -14,6 +12,7 @@ from celmento_api.models.client_request_receipt import (
 )
 from celmento_api.models.enums import ErrorCode
 from celmento_api.services.account_access import lock_account
+from celmento_api.services.idempotency import request_fingerprint
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,13 +30,7 @@ def client_write_request(
 ) -> ClientWriteRequest | None:
     if key is None:
         return None
-    payload: object = body.model_dump(mode="json", exclude_unset=True)
-    raw = dumps(
-        (str(client_id) if client_id is not None else None, payload),
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    return ClientWriteRequest(operation, key, sha256(raw.encode()).hexdigest())
+    return ClientWriteRequest(operation, key, request_fingerprint(body, client_id))
 
 
 async def previous_client(

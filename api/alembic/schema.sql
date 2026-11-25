@@ -1,4 +1,4 @@
--- Alembic revision: 0003
+-- Alembic revision: 0004
 --
 -- PostgreSQL database dump
 --
@@ -230,6 +230,85 @@ CREATE TABLE public.legal_document_version (
 
 
 --
+-- Name: meeting; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.meeting (
+    meeting_id uuid DEFAULT uuidv7() NOT NULL,
+    leader_account_id uuid NOT NULL,
+    type text NOT NULL,
+    client_card_id uuid,
+    with_whom text,
+    topic text,
+    starts_at timestamp with time zone NOT NULL,
+    duration_minutes integer NOT NULL,
+    my_duration_minutes integer,
+    actual_duration_minutes integer,
+    place text NOT NULL,
+    meeting_link text,
+    address text,
+    price numeric(19,4),
+    currency text,
+    currency_version integer,
+    payment_type text,
+    status text DEFAULT 'scheduled'::text NOT NULL,
+    charged boolean,
+    comment text,
+    source text NOT NULL,
+    client_comment text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT meeting_actual_duration_matches_status CHECK ((((status = 'completed'::text) = (actual_duration_minutes IS NOT NULL)) AND ((actual_duration_minutes IS NULL) OR (actual_duration_minutes > 0)))),
+    CONSTRAINT meeting_charge_decision_matches_status CHECK (((status = 'not_taken_place'::text) = (charged IS NOT NULL))),
+    CONSTRAINT meeting_client_fields_match_type CHECK ((((type = 'client_session'::text) = (client_card_id IS NOT NULL)) AND ((type = 'client_session'::text) = (payment_type IS NOT NULL)) AND ((type = 'client_session'::text) = (currency_version IS NOT NULL)))),
+    CONSTRAINT meeting_client_has_no_with_whom CHECK (((type <> 'client_session'::text) OR ((with_whom IS NULL) AND (topic IS NULL)))),
+    CONSTRAINT meeting_currency_known CHECK ((currency = ANY (ARRAY['RUB'::text, 'EUR'::text, 'USD'::text]))),
+    CONSTRAINT meeting_currency_version_valid CHECK ((currency_version >= 1)),
+    CONSTRAINT meeting_duration_valid CHECK ((duration_minutes > 0)),
+    CONSTRAINT meeting_location_matches_place CHECK ((((meeting_link IS NULL) OR (place = 'online'::text)) AND ((address IS NULL) OR (place = 'in_person'::text)))),
+    CONSTRAINT meeting_own_duration_valid CHECK ((((type = 'mutual_practice'::text) = (my_duration_minutes IS NOT NULL)) AND ((my_duration_minutes IS NULL) OR ((my_duration_minutes >= 1) AND (my_duration_minutes <= duration_minutes))))),
+    CONSTRAINT meeting_paid_price_valid CHECK (((payment_type <> 'paid'::text) OR (price > (0)::numeric))),
+    CONSTRAINT meeting_payment_type_known CHECK ((payment_type = ANY (ARRAY['paid'::text, 'pro_bono'::text, 'barter'::text]))),
+    CONSTRAINT meeting_place_known CHECK ((place = ANY (ARRAY['online'::text, 'in_person'::text]))),
+    CONSTRAINT meeting_price_matches_type CHECK ((((type = 'mutual_practice'::text) = (price IS NULL)) AND ((type = 'mutual_practice'::text) = (currency IS NULL)))),
+    CONSTRAINT meeting_price_valid CHECK (((price >= (0)::numeric) AND (price < 'Infinity'::numeric))),
+    CONSTRAINT meeting_source_known CHECK ((source = ANY (ARRAY['specialist'::text, 'self_booked'::text]))),
+    CONSTRAINT meeting_status_known CHECK ((status = ANY (ARRAY['scheduled'::text, 'completed'::text, 'not_taken_place'::text]))),
+    CONSTRAINT meeting_type_known CHECK ((type = ANY (ARRAY['client_session'::text, 'personal_therapy'::text, 'supervision'::text, 'training'::text, 'mutual_practice'::text])))
+);
+
+
+--
+-- Name: meeting_create_receipt; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.meeting_create_receipt (
+    meeting_create_receipt_id uuid DEFAULT uuidv7() NOT NULL,
+    leader_account_id uuid NOT NULL,
+    idempotency_key uuid NOT NULL,
+    meeting_id uuid,
+    request_digest text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT meeting_create_receipt_digest_valid CHECK ((request_digest ~ '^[0-9a-f]{64}$'::text))
+);
+
+
+--
+-- Name: meeting_expense_correction; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.meeting_expense_correction (
+    meeting_expense_correction_id uuid DEFAULT uuidv7() CONSTRAINT meeting_expense_correction_meeting_expense_correction__not_null NOT NULL,
+    meeting_id uuid NOT NULL,
+    amount numeric(19,4) NOT NULL,
+    currency text NOT NULL,
+    created_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    CONSTRAINT meeting_expense_correction_amount_valid CHECK (((amount <> (0)::numeric) AND (amount > '-Infinity'::numeric) AND (amount < 'Infinity'::numeric))),
+    CONSTRAINT meeting_expense_correction_currency_known CHECK ((currency = ANY (ARRAY['RUB'::text, 'EUR'::text, 'USD'::text])))
+);
+
+
+--
 -- Name: notice; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -418,6 +497,38 @@ ALTER TABLE ONLY public.legal_document_version
 
 
 --
+-- Name: meeting_create_receipt meeting_create_receipt_key_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.meeting_create_receipt
+    ADD CONSTRAINT meeting_create_receipt_key_unique UNIQUE (leader_account_id, idempotency_key);
+
+
+--
+-- Name: meeting_create_receipt meeting_create_receipt_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.meeting_create_receipt
+    ADD CONSTRAINT meeting_create_receipt_pkey PRIMARY KEY (meeting_create_receipt_id);
+
+
+--
+-- Name: meeting_expense_correction meeting_expense_correction_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.meeting_expense_correction
+    ADD CONSTRAINT meeting_expense_correction_pkey PRIMARY KEY (meeting_expense_correction_id);
+
+
+--
+-- Name: meeting meeting_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.meeting
+    ADD CONSTRAINT meeting_pkey PRIMARY KEY (meeting_id);
+
+
+--
 -- Name: notice notice_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -552,6 +663,34 @@ CREATE INDEX ix_feedback_message_account_id ON public.feedback_message USING btr
 
 
 --
+-- Name: ix_meeting_client_card_id_starts_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_meeting_client_card_id_starts_at ON public.meeting USING btree (client_card_id, starts_at);
+
+
+--
+-- Name: ix_meeting_create_receipt_meeting_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_meeting_create_receipt_meeting_id ON public.meeting_create_receipt USING btree (meeting_id);
+
+
+--
+-- Name: ix_meeting_expense_correction_meeting_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_meeting_expense_correction_meeting_id ON public.meeting_expense_correction USING btree (meeting_id);
+
+
+--
+-- Name: ix_meeting_leader_account_id_starts_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_meeting_leader_account_id_starts_at ON public.meeting USING btree (leader_account_id, starts_at);
+
+
+--
 -- Name: ix_notice_account_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -636,11 +775,59 @@ ALTER TABLE ONLY public.feedback_message
 
 
 --
+-- Name: balance_operation fk_balance_operation_meeting_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.balance_operation
+    ADD CONSTRAINT fk_balance_operation_meeting_id FOREIGN KEY (meeting_id) REFERENCES public.meeting(meeting_id) ON DELETE SET NULL;
+
+
+--
 -- Name: leader_profile leader_profile_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.leader_profile
     ADD CONSTRAINT leader_profile_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.account(account_id) ON DELETE CASCADE;
+
+
+--
+-- Name: meeting meeting_client_card_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.meeting
+    ADD CONSTRAINT meeting_client_card_id_fkey FOREIGN KEY (client_card_id) REFERENCES public.client_card(client_card_id) ON DELETE RESTRICT;
+
+
+--
+-- Name: meeting_create_receipt meeting_create_receipt_leader_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.meeting_create_receipt
+    ADD CONSTRAINT meeting_create_receipt_leader_account_id_fkey FOREIGN KEY (leader_account_id) REFERENCES public.account(account_id) ON DELETE RESTRICT;
+
+
+--
+-- Name: meeting_create_receipt meeting_create_receipt_meeting_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.meeting_create_receipt
+    ADD CONSTRAINT meeting_create_receipt_meeting_id_fkey FOREIGN KEY (meeting_id) REFERENCES public.meeting(meeting_id) ON DELETE SET NULL;
+
+
+--
+-- Name: meeting_expense_correction meeting_expense_correction_meeting_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.meeting_expense_correction
+    ADD CONSTRAINT meeting_expense_correction_meeting_id_fkey FOREIGN KEY (meeting_id) REFERENCES public.meeting(meeting_id) ON DELETE CASCADE;
+
+
+--
+-- Name: meeting meeting_leader_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.meeting
+    ADD CONSTRAINT meeting_leader_account_id_fkey FOREIGN KEY (leader_account_id) REFERENCES public.account(account_id) ON DELETE RESTRICT;
 
 
 --

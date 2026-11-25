@@ -1,8 +1,9 @@
-from decimal import Decimal
+from datetime import UTC, datetime
+from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
 from fastapi.exceptions import RequestValidationError
-from sqlalchemy import func, or_, select
+from sqlalchemy import DateTime, Integer, Nullable, func, or_, select, type_coerce
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from celmento_api.errors import AppError
@@ -16,8 +17,10 @@ from celmento_api.models.enums import (
     ContactChannel,
     Currency,
     ErrorCode,
+    MeetingStatus,
     PaymentType,
 )
+from celmento_api.models.meeting import Meeting
 from celmento_api.schemas.clients import ClientCard as ClientCardView
 from celmento_api.schemas.clients import (
     ClientCreateFields,
@@ -35,6 +38,7 @@ from celmento_api.services.balance import (
 )
 from celmento_api.services.limit import ensure_card_can_become_active
 from celmento_api.services.plan_status import plan_status
+from celmento_api.services.schedule import apply_client_currency_to_future_meetings
 from celmento_api.storage import client_photo_url
 
 
@@ -71,9 +75,32 @@ async def list_client_cards(
     status: ClientCardStatus | None,
     q: str | None,
 ) -> ClientList:
-    query = select(ClientCard, card_balance_expression()).where(
-        ClientCard.leader_account_id == leader.account_id
+    completed = (
+        select(func.count())
+        .select_from(Meeting)
+        .where(
+            Meeting.client_card_id == ClientCard.client_card_id,
+            Meeting.leader_account_id == ClientCard.leader_account_id,
+            Meeting.status == MeetingStatus.COMPLETED.value,
+        )
+        .correlate(ClientCard)
+        .scalar_subquery()
     )
+    last_started = (
+        select(
+            Nullable(type_coerce(func.max(Meeting.starts_at), DateTime(timezone=True)))
+        )
+        .where(
+            Meeting.client_card_id == ClientCard.client_card_id,
+            Meeting.leader_account_id == ClientCard.leader_account_id,
+            Meeting.starts_at <= datetime.now(UTC),
+        )
+        .correlate(ClientCard)
+        .scalar_subquery()
+    )
+    query = select(
+        ClientCard, card_balance_expression(), completed, last_started
+    ).where(ClientCard.leader_account_id == leader.account_id)
     if status is not None:
         query = query.where(ClientCard.status == status.value)
     if q is not None:
@@ -103,11 +130,11 @@ async def list_client_cards(
             archived_at=card.archived_at,
             linked=card.linked_account_id is not None,
             is_new=card.is_new,
-            completed_sessions=0,
-            last_meeting_at=None,
+            completed_sessions=completed_sessions,
+            last_meeting_at=last_meeting_at,
             balance=balance_summary(card, amount),
         )
-        for card, amount in rows
+        for card, amount, completed_sessions, last_meeting_at in rows
     ]
     return ClientList(items=items, plan=await plan_status(session, leader))
 
@@ -135,6 +162,24 @@ async def _link_view(session: AsyncSession, card: ClientCard) -> ClientLink:
 async def client_view(
     session: AsyncSession, card: ClientCard, origin: str
 ) -> ClientCardView:
+    completed, minutes = (
+        await session.execute(
+            select(
+                func.count(),
+                type_coerce(
+                    func.coalesce(func.sum(Meeting.actual_duration_minutes), 0),
+                    Integer(),
+                ),
+            ).where(
+                Meeting.client_card_id == card.client_card_id,
+                Meeting.leader_account_id == card.leader_account_id,
+                Meeting.status == MeetingStatus.COMPLETED.value,
+            )
+        )
+    ).one()
+    hours = (Decimal(minutes) / Decimal(60)).quantize(
+        Decimal("0.1"), rounding=ROUND_HALF_UP
+    )
     return ClientCardView(
         id=card.client_card_id,
         name=card.name,
@@ -161,8 +206,8 @@ async def client_view(
         linked=card.linked_account_id is not None,
         is_new=card.is_new,
         source=ClientSource(card.source),
-        completed_sessions=0,
-        completed_hours=0.0,
+        completed_sessions=completed,
+        completed_hours=float(hours),
         balance=balance_summary(card, await current_amount(session, card)),
         created_at=card.created_at,
     )
@@ -225,7 +270,8 @@ async def update_client_card(
     currency = body.get("currency", Currency(card.currency))
     payment_type = body.get("payment_type", PaymentType(card.payment_type))
     validate_payment_type(rate, payment_type)
-    if currency.value != card.currency:
+    currency_changed = currency.value != card.currency
+    if currency_changed:
         # spec:impl client-rate-currency#allow-changing-currency-screen-6-2
         if await current_amount(session, card) != 0:
             raise AppError(409, ErrorCode.BALANCE_NOT_ZERO)
@@ -268,3 +314,5 @@ async def update_client_card(
     card.goals = body.get("goals", card.goals)
     card.info = body.get("info", card.info)
     card.hypotheses = body.get("hypotheses", card.hypotheses)
+    if currency_changed:
+        await apply_client_currency_to_future_meetings(session, card, datetime.now(UTC))

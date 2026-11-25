@@ -86,6 +86,15 @@ class ClientLink(BaseModel):
     login: str | None
 
 
+class ClientRef(BaseModel):
+    id: UUID
+    name: str = Field(repr=False)
+    photo_url: Uri | None
+    archived: bool
+    linked: bool
+    time_zone: str | None
+
+
 class ClientCard(BaseModel):
     id: UUID
     name: str = Field(repr=False)
