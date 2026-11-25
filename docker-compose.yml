@@ -1,0 +1,31 @@
+name: celmento-app
+
+services:
+  postgres:
+    image: postgres:19.0
+    environment:
+      POSTGRES_DB: celmento_app
+      POSTGRES_USER: celmento_app
+      POSTGRES_PASSWORD: ${CLM_APP_POSTGRES_PASSWORD:?Set CLM_APP_POSTGRES_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - celmento_app_pg:/var/lib/postgresql
+      - ./docker/postgres/init-test-database.sql:/docker-entrypoint-initdb.d/init-test-database.sql:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "celmento_app", "-d", "celmento_app"]
+      interval: 3s
+      timeout: 3s
+      retries: 15
+    restart: unless-stopped
+
+  mailpit:
+    image: axllent/mailpit:v1.34.0
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
+    restart: unless-stopped
+
+volumes:
+  celmento_app_pg:
+    name: celmento_app_pg

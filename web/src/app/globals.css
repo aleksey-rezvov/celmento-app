@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light;
+  --color-accent: #2d72d9;
+  --color-cream: #f5ece5;
+  --color-card: #fff;
+  --color-secondary: #65666d;
+  --color-text: #24222a;
+  --color-folder-pink: #ffa6d2;
+  --color-folder-blue: #a6daff;
+  --color-folder-lilac: #b2b2ff;
+  --color-folder-yellow: #ffd480;
+  --color-folder-green: #8dd98d;
+  --color-folder-peach: #ffa6a6;
+  --color-meeting-client-session: var(--color-folder-pink);
+  --color-meeting-personal-therapy: var(--color-folder-blue);
+  --color-meeting-supervision: var(--color-folder-lilac);
+  --color-meeting-training: var(--color-folder-yellow);
+  --color-meeting-mutual-practice: #afe1db;
+  --app-width: 24.5625rem;
+  --font-body: system-ui, sans-serif;
+  --font-title: Georgia, "Times New Roman", serif;
+}
+
+body {
+  background: var(--color-cream);
+  color: var(--color-text);
+  font-family: var(--font-body);
+}
+
+/* spec:impl mobile-app-shell#center-phone-width-shell */
+.app-frame {
+  width: min(100%, var(--app-width));
+  min-height: 100dvh;
+  margin-inline: auto;
+}
+
+.app-title {
+  padding: 2rem 1.25rem;
+  font-family: var(--font-title);
+  font-size: 2.5rem;
+  line-height: 1.1;
+}
