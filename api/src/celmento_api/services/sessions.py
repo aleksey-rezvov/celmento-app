@@ -22,14 +22,18 @@ def _token_hash(purpose: bytes, token: str) -> str:
     return digest(secret, purpose + b":" + token.encode(), "sha256").hex()
 
 
-async def issue_session(session: AsyncSession, account: Account) -> SignInSession:
+async def issue_session(
+    session: AsyncSession, account: Account, origin: str
+) -> SignInSession:
     token = token_urlsafe(32)
     session.add(
         AccountSession(
             account_id=account.account_id, token_hash=_token_hash(b"session", token)
         )
     )
-    return SignInSession(token=token, account=await account_view(session, account))
+    return SignInSession(
+        token=token, account=await account_view(session, account, origin)
+    )
 
 
 async def require_session(session: AsyncSession, token: str) -> AccountSession:
@@ -61,7 +65,9 @@ async def issue_ticket(session: AsyncSession, account: Account) -> SignInTicket:
     )
 
 
-async def exchange_ticket(session: AsyncSession, ticket: str) -> SignInSession:
+async def exchange_ticket(
+    session: AsyncSession, ticket: str, origin: str
+) -> SignInSession:
     now = datetime.now(UTC)
     # spec:impl region-contours#reject-invalid-tickets
     account_id = await session.scalar(
@@ -79,4 +85,4 @@ async def exchange_ticket(session: AsyncSession, ticket: str) -> SignInSession:
     account = await session.get(Account, account_id)
     if account is None:
         raise AppError(400, ErrorCode.TICKET_INVALID)
-    return await issue_session(session, account)
+    return await issue_session(session, account, origin)

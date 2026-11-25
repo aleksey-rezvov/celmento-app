@@ -171,6 +171,16 @@ class NoticeTab(StrEnum):
     PROFILE = "profile"
 
 
+class NoticeKey(StrEnum):
+    LIMIT_NEW_CLIENT = "notify.limit_new_client"
+    ARCHIVED_CLIENT_TRIED = "notify.archived_client_tried"
+    INVITE_REGISTERED = "notify.invite_registered"
+    LINKED = "client.linked_notice"
+    RESCHEDULED = "notify.rescheduled"
+    CANCELLED = "notify.cancelled"
+    ACCESS_GRANTED = "admin.access_granted"
+
+
 class LegalDocumentKind(StrEnum):
     TERMS_OF_USE = "terms_of_use"
     PERSONAL_DATA_CONSENT = "personal_data_consent"

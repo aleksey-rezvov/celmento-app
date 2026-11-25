@@ -10,7 +10,7 @@ from celmento_api.contour import web_url
 from celmento_api.db import engine
 from celmento_api.errors import install_error_handlers
 from celmento_api.models.enums import Contour
-from celmento_api.routers import auth, documents
+from celmento_api.routers import account, auth, documents, feedback, notices
 
 API_PREFIX: str = "/api/v1"
 settings: Settings = get_settings()
@@ -31,12 +31,21 @@ api: FastAPI = FastAPI(
     license_info={"name": "MIT", "identifier": "MIT"},
     servers=[{"url": API_PREFIX}],
     root_path_in_servers=False,
-    openapi_tags=[{"name": "auth"}, {"name": "documents"}],
+    openapi_tags=[
+        {"name": "account"},
+        {"name": "auth"},
+        {"name": "documents"},
+        {"name": "feedback"},
+        {"name": "notices"},
+    ],
 )
 api.openapi_version = "3.1.1"
 install_error_handlers(api)
+api.include_router(account.router)
 api.include_router(auth.router)
 api.include_router(documents.router)
+api.include_router(feedback.router)
+api.include_router(notices.router)
 
 app: FastAPI = FastAPI(
     openapi_url=None,
