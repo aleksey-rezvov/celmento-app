@@ -8,6 +8,7 @@ from celmento_api.config import get_settings
 from celmento_api.db import Base, engine
 
 import_module("celmento_api.models.account")
+import_module("celmento_api.models.admin")
 import_module("celmento_api.models.balance")
 import_module("celmento_api.models.client_card")
 import_module("celmento_api.models.client_request_receipt")

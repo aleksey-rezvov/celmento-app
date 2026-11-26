@@ -143,7 +143,7 @@ async def test_seed_upgrades_legacy_once_and_preserves_administrator_templates(
         assert english.version == 2 and english.content == override
         assert english.updated_at == override_timestamp
         expected = _asset(Language.RU)
-        assert russian.version == 1
+        assert russian.version == 2
         assert russian.content == expected.model_dump(mode="json", exclude={"language"})
         assert russian.updated_at > stale_timestamp
         repaired_timestamp = russian.updated_at

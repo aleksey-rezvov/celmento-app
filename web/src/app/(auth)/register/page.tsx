@@ -18,6 +18,7 @@ import {
   loadIntent,
   loadOrigin,
   loadSignupEmail,
+  loadSignupNames,
   resumePath,
   saveCode,
   saveEmail,
@@ -36,9 +37,10 @@ function SignupForm({ initialEmail }: SignupFormProps): ReactElement {
   const language = useLanguage();
   const contour = currentContour();
   const id = useId();
+  const [initialNames] = useState(loadSignupNames);
   const [email, setEmail] = useState(initialEmail);
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
+  const [firstName, setFirstName] = useState(initialNames.firstName);
+  const [lastName, setLastName] = useState(initialNames.lastName);
   const [terms, setTerms] = useState(false);
   const [privacy, setPrivacy] = useState(false);
   const [openDocument, setOpenDocument] = useState<Kind | null>(null);

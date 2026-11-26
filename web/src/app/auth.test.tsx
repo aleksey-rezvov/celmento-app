@@ -771,6 +771,51 @@ test("uses the server's retry time when an attempted resend is still rate-limite
   expect(screen.getByRole("button", { name: t("code.resend") })).toHaveProperty("disabled", false);
 });
 
+test("returns to the consent form with names preserved when an expired registration needs new marks", async () => {
+  const previous = startCode(email, null, {
+    email,
+    language: "en",
+    first_name: "Ada",
+    last_name: "Lovelace",
+    consents: [{ document: "terms_of_use", version: "previous" }],
+  });
+  vi.useFakeTimers();
+  vi.setSystemTime(previous.expiresAt + 1000);
+  const requests = mockApi((request) =>
+    new URL(request.url).pathname.includes("/documents/")
+      ? legalDocument(request)
+      : json({ code: "consent_required" }, 400),
+  );
+  const codeView = display(<LoginCode />);
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: t("extra.auth_send_code") }));
+  });
+  expect(requests[0]?.url).toContain("/auth/register");
+  expect(navigation.replace).toHaveBeenLastCalledWith("/register");
+  codeView.unmount();
+  vi.useRealTimers();
+
+  display(<Signup />);
+  expect(screen.getByRole("textbox", { name: t("signup.first_name") })).toHaveProperty(
+    "value",
+    "Ada",
+  );
+  expect(screen.getByRole("textbox", { name: t("signup.last_name") })).toHaveProperty(
+    "value",
+    "Lovelace",
+  );
+  expect(screen.getByRole("textbox", { name: t("login.email") })).toHaveProperty("value", email);
+  expect(screen.getByRole("checkbox", { name: t("signup.terms") })).toHaveProperty(
+    "checked",
+    false,
+  );
+  expect(screen.getByRole("checkbox", { name: t("signup.privacy") })).toHaveProperty(
+    "checked",
+    false,
+  );
+  expect(screen.getByRole("button", { name: t("signup.create") })).toHaveProperty("disabled", true);
+});
+
 // spec:test registration-finish-screen#show-finish-after-code
 // spec:test registration-finish-screen#show-celmento-master-blue-celmento-master-red
 // spec:test character-illustrations#show-celmento-master-blue-celmento-master-red

@@ -576,6 +576,7 @@ const archived: Notice = {
 
 // spec:test in-app-notice-bar#show-in-app-notification-bar-top
 // spec:test in-app-notice-bar#show-notification-text-key-named
+// spec:test free-plan-client-limit#show-bar-archived-client-tried-raised
 test("puts the current tab's notices above its content in API order and separates old and new zoned times", async () => {
   const entries = [rescheduled, cancelled, archived];
   const requests = signIn(accountFor(false, "ru", "Europe/Moscow"), entries);

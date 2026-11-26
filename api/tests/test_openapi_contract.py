@@ -87,6 +87,29 @@ def test_calendar_responses_use_calendar_media_type() -> None:
         assert schema.get("type", "string") == "string"
 
 
+def test_administration_operations_require_only_the_admin_key() -> None:
+    schema = api.openapi()
+    paths = _object(schema["paths"], "generated paths")
+    admin_paths = {
+        path: methods for path, methods in paths.items() if path.startswith("/admin/")
+    }
+    operations = [
+        _object(operation, method)
+        for path, methods in admin_paths.items()
+        for method, operation in _object(methods, path).items()
+        if method in HTTP_METHODS
+    ]
+    assert len(operations) == 11
+    assert all(operation["security"] == [{"adminKey": []}] for operation in operations)
+    security = _object(
+        _object(schema["components"], "components")["securitySchemes"],
+        "security schemes",
+    )
+    admin_key = _object(security["adminKey"], "admin key")
+    assert admin_key["type"] == "apiKey"
+    assert admin_key["in"] == "header" and admin_key["name"] == "X-Admin-Key"
+
+
 def test_api_enumerations_match_contract(openapi_contract: dict[str, object]) -> None:
     components = _object(openapi_contract["components"], "contract components")
     schemas = _object(components["schemas"], "contract schemas")
@@ -170,6 +193,36 @@ def test_write_requests_use_named_schemas() -> None:
             "post",
             "application/json",
             "SubscriptionRequestCreate",
+        ),
+        (
+            "/admin/accounts/{account_id}/subscription",
+            "put",
+            "application/json",
+            "AdminSubscriptionGrant",
+        ),
+        (
+            "/admin/feedback/mark-processed",
+            "post",
+            "application/json",
+            "AdminFeedbackMarkProcessed",
+        ),
+        (
+            "/admin/legal-documents/{document}/versions",
+            "post",
+            "application/json",
+            "AdminLegalDocumentVersionCreate",
+        ),
+        (
+            "/admin/preseeded-notes/{language}",
+            "put",
+            "application/json",
+            "AdminPreseededNotesSetReplace",
+        ),
+        (
+            "/admin/reserved-login-words",
+            "post",
+            "application/json",
+            "AdminReservedLoginWordCreate",
         ),
         (
             "/public/specialists/{login}/meet/{meeting_id}/join",

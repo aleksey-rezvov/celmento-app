@@ -356,7 +356,9 @@ async def create_guest_booking(
         if existing is not None:
             return GuestBooked(_confirmation(leader, existing, email), None)
 
-    await require_consents(session, body.consents, REGISTRATION_CONSENTS)
+    await require_consents(
+        session, body.consents, REGISTRATION_CONSENTS, current_required=True
+    )
     profile = await leader_record(session, leader.account_id)
     place = booking_place(profile, body.place, body.expected_session_format)
     now = datetime.now(UTC)
@@ -364,6 +366,7 @@ async def create_guest_booking(
         session, leader, profile, body.starts_at, now
     )
     if card is not None and card.status == ClientCardStatus.ARCHIVED.value:
+        # spec:impl free-plan-client-limit#show-bar-archived-client-tried-raised
         await raise_notice(
             session,
             leader.account_id,
@@ -372,6 +375,7 @@ async def create_guest_booking(
             {"name": card.name},
         )
         return BookingUnavailable(main_contact(leader, profile))
+    # spec:impl free-plan-client-limit#block-count-booking-matches-existing
     if card is None:
         try:
             await ensure_card_can_become_active(session, leader)
@@ -386,6 +390,7 @@ async def create_guest_booking(
                 NoticeKey.LIMIT_NEW_CLIENT,
                 {"name": body.name},
             )
+            # spec:impl free-plan-client-limit#refuse-booking-create-new-card
             return BookingUnavailable(main_contact(leader, profile))
         card = _new_guest_card(leader, profile, body, email)
         session.add(card)
@@ -411,7 +416,11 @@ async def create_guest_booking(
     )
     # spec:impl legal-documents#store-guest-booking-date-time
     record_acceptances(
-        session, body.consents, meeting_id=meeting.meeting_id, accepted_at=now
+        session,
+        body.consents,
+        meeting_id=meeting.meeting_id,
+        guest_client_card_id=card.client_card_id,
+        accepted_at=now,
     )
     if key is not None and digest is not None:
         session.add(

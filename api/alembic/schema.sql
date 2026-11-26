@@ -1,4 +1,4 @@
--- Alembic revision: 0007
+-- Alembic revision: 0008
 --
 -- PostgreSQL database dump
 --
@@ -36,6 +36,8 @@ CREATE TABLE public.acceptance (
     version text,
     accepted_at timestamp with time zone NOT NULL,
     guest_booking_id uuid,
+    guest_client_card_id uuid,
+    CONSTRAINT acceptance_guest_card_requires_booking CHECK (((guest_client_card_id IS NULL) OR (guest_booking_id IS NOT NULL))),
     CONSTRAINT acceptance_has_one_subject CHECK (((account_id IS NULL) <> (guest_booking_id IS NULL))),
     CONSTRAINT acceptance_live_meeting_matches_booking CHECK (((meeting_id IS NULL) OR ((guest_booking_id IS NOT NULL) AND (meeting_id = guest_booking_id)))),
     CONSTRAINT acceptance_requires_document_version CHECK (((kind = 'age_confirmation'::text) = (version IS NULL)))
@@ -62,6 +64,43 @@ CREATE TABLE public.account (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT account_first_name_length CHECK (((length(first_name) >= 1) AND (length(first_name) <= 100))),
     CONSTRAINT account_last_name_length CHECK (((length(last_name) >= 1) AND (length(last_name) <= 100)))
+);
+
+
+--
+-- Name: admin_journal_entry; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.admin_journal_entry (
+    admin_journal_entry_id uuid DEFAULT uuidv7() NOT NULL,
+    admin_key_id uuid NOT NULL,
+    created_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    action text NOT NULL,
+    object_type text NOT NULL,
+    object_id text,
+    params jsonb NOT NULL,
+    before jsonb,
+    after jsonb,
+    CONSTRAINT admin_journal_entry_action_known CHECK ((action = ANY (ARRAY['list_feedback'::text, 'mark_feedback_processed'::text, 'get_statistics'::text, 'get_preseeded_notes'::text, 'replace_preseeded_notes'::text, 'lookup_account'::text, 'grant_subscription'::text, 'upload_legal_document_version'::text, 'list_reserved_login_words'::text, 'add_reserved_login_word'::text, 'list_journal'::text]))),
+    CONSTRAINT admin_journal_entry_after_object CHECK ((jsonb_typeof(after) = 'object'::text)),
+    CONSTRAINT admin_journal_entry_before_object CHECK ((jsonb_typeof(before) = 'object'::text)),
+    CONSTRAINT admin_journal_entry_object_type_known CHECK ((object_type = ANY (ARRAY['feedback'::text, 'statistics'::text, 'preseeded_notes'::text, 'account'::text, 'subscription'::text, 'legal_document'::text, 'reserved_login_word'::text, 'journal'::text]))),
+    CONSTRAINT admin_journal_entry_params_object CHECK ((jsonb_typeof(params) = 'object'::text))
+);
+
+
+--
+-- Name: admin_key; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.admin_key (
+    admin_key_id uuid DEFAULT uuidv7() NOT NULL,
+    key_hash text NOT NULL,
+    label text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    revoked_at timestamp with time zone,
+    CONSTRAINT admin_key_digest_valid CHECK ((key_hash ~ '^[0-9a-f]{64}$'::text)),
+    CONSTRAINT admin_key_label_length CHECK (((length(label) >= 1) AND (length(label) <= 100)))
 );
 
 
@@ -584,6 +623,30 @@ ALTER TABLE ONLY public.account
 
 
 --
+-- Name: admin_journal_entry admin_journal_entry_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.admin_journal_entry
+    ADD CONSTRAINT admin_journal_entry_pkey PRIMARY KEY (admin_journal_entry_id);
+
+
+--
+-- Name: admin_key admin_key_key_hash_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.admin_key
+    ADD CONSTRAINT admin_key_key_hash_key UNIQUE (key_hash);
+
+
+--
+-- Name: admin_key admin_key_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.admin_key
+    ADD CONSTRAINT admin_key_pkey PRIMARY KEY (admin_key_id);
+
+
+--
 -- Name: alembic_version alembic_version_pkc; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -901,10 +964,31 @@ CREATE INDEX ix_acceptance_guest_booking_id ON public.acceptance USING btree (gu
 
 
 --
+-- Name: ix_acceptance_guest_client_card_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_acceptance_guest_client_card_id ON public.acceptance USING btree (guest_client_card_id);
+
+
+--
 -- Name: ix_acceptance_meeting_id; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX ix_acceptance_meeting_id ON public.acceptance USING btree (meeting_id);
+
+
+--
+-- Name: ix_admin_journal_entry_admin_key_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_admin_journal_entry_admin_key_id ON public.admin_journal_entry USING btree (admin_key_id);
+
+
+--
+-- Name: ix_admin_journal_entry_created_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_admin_journal_entry_created_at ON public.admin_journal_entry USING btree (created_at);
 
 
 --
@@ -1112,11 +1196,27 @@ ALTER TABLE ONLY public.acceptance
 
 
 --
+-- Name: acceptance acceptance_guest_client_card_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.acceptance
+    ADD CONSTRAINT acceptance_guest_client_card_id_fkey FOREIGN KEY (guest_client_card_id) REFERENCES public.client_card(client_card_id) ON DELETE SET NULL;
+
+
+--
 -- Name: acceptance acceptance_meeting_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.acceptance
     ADD CONSTRAINT acceptance_meeting_id_fkey FOREIGN KEY (meeting_id) REFERENCES public.meeting(meeting_id) ON DELETE SET NULL;
+
+
+--
+-- Name: admin_journal_entry admin_journal_entry_admin_key_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.admin_journal_entry
+    ADD CONSTRAINT admin_journal_entry_admin_key_id_fkey FOREIGN KEY (admin_key_id) REFERENCES public.admin_key(admin_key_id) ON DELETE RESTRICT;
 
 
 --

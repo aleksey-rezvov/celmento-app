@@ -12,6 +12,7 @@ from celmento_api.errors import install_error_handlers
 from celmento_api.models.enums import Contour
 from celmento_api.routers import (
     account,
+    admin,
     auth,
     balance,
     clients,
@@ -46,6 +47,7 @@ api: FastAPI = FastAPI(
     root_path_in_servers=False,
     openapi_tags=[
         {"name": "account"},
+        {"name": "admin"},
         {"name": "auth"},
         {"name": "balance"},
         {"name": "clients"},
@@ -63,6 +65,7 @@ api: FastAPI = FastAPI(
 api.openapi_version = "3.1.1"
 install_error_handlers(api)
 api.include_router(account.router)
+api.include_router(admin.router)
 api.include_router(auth.router)
 api.include_router(balance.router)
 api.include_router(clients.router)

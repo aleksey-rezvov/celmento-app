@@ -9,6 +9,7 @@ const storageKeys = {
   registrationPackage: "celmento_app_registration_package",
   email: "celmento_app_sign_in_email",
   signupEmail: "celmento_app_signup_email",
+  signupNames: "celmento_app_signup_names",
   code: "celmento_app_sign_in_code",
 } as const;
 
@@ -251,6 +252,7 @@ export function loadEmail(): string {
 export function saveSignupEmail(email: string): void {
   closeCode();
   window.localStorage.removeItem(storageKeys.code);
+  window.localStorage.removeItem(storageKeys.signupNames);
   saveEmail(email);
   window.localStorage.setItem(storageKeys.signupEmail, email);
 }
@@ -259,9 +261,27 @@ export function loadSignupEmail(): string | null {
   return read(storageKeys.signupEmail);
 }
 
+export function restoreSignup(registration: Schemas["AccountRegistration"]): void {
+  saveSignupEmail(registration.email);
+  window.localStorage.setItem(
+    storageKeys.signupNames,
+    JSON.stringify({ firstName: registration.first_name, lastName: registration.last_name }),
+  );
+}
+
+export function loadSignupNames(): { firstName: string; lastName: string } {
+  const value = readJson(read(storageKeys.signupNames));
+  return isRecord(value) &&
+    typeof value.firstName === "string" &&
+    typeof value.lastName === "string"
+    ? { firstName: value.firstName, lastName: value.lastName }
+    : { firstName: "", lastName: "" };
+}
+
 export function saveCode(code: PendingCode): void {
   window.localStorage.setItem(storageKeys.code, JSON.stringify(code));
   window.localStorage.removeItem(storageKeys.signupEmail);
+  window.localStorage.removeItem(storageKeys.signupNames);
   saveEmail(code.email);
 }
 

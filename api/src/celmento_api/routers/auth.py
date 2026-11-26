@@ -38,6 +38,8 @@ from celmento_api.services.sign_in_codes import (
     claim_code,
     find_account,
     normalize_email,
+    pending_registration_matches,
+    registration_matches,
     request_sign_in_code,
     send_code,
 )
@@ -72,10 +74,14 @@ async def register(
     email = normalize_email(body.email)
     account = await find_account(session, email)
     if account is None:
-        await validate_registration(session, body)
+        await validate_registration(
+            session,
+            body,
+            current_consent_required=not pending_registration_matches(email, body),
+        )
     # spec:impl account-registration#defer-personal-data-until-finish
     # spec:impl account-registration#send-code-on-registration
-    await send_code(email, body.language)
+    await send_code(email, body.language, body if account is None else None)
     # spec:impl account-registration#handle-reused-email
     return AccountRegistrationResult(
         account_exists=account is not None,
@@ -94,7 +100,7 @@ async def verify(
     request: Request, body: SignInCodeVerification, session: Database
 ) -> SignInCodeVerificationResult:
     email = normalize_email(body.email)
-    with claim_code(email, body.code.get_secret_value()):
+    with claim_code(email, body.code.get_secret_value()) as accepted_registration:
         account = await find_account(session, email)
         if account is not None:
             result = SignInCodeVerificationResult(
@@ -105,11 +111,18 @@ async def verify(
             await session.commit()
             return result
         registration = body.registration
-        if registration is None or normalize_email(registration.email) != email:
+        # spec:impl legal-documents#keep-terms-consent-acceptance-marks
+        if (
+            registration is None
+            or normalize_email(registration.email) != email
+            or not registration_matches(accepted_registration, registration)
+        ):
             raise AppError(400, ErrorCode.REGISTRATION_REQUIRED)
         if body.registration_device_key is None:
             raise AppError(400, ErrorCode.REGISTRATION_PACKAGE_INVALID)
-        origin, inviter_id = await validate_registration(session, registration)
+        origin, inviter_id = await validate_registration(
+            session, registration, current_consent_required=False
+        )
         # spec:impl registration-finish-screen#defer-account-until-finish
         return SignInCodeVerificationResult(
             outcome=VerificationOutcome.REGISTRATION_CONFIRMED,

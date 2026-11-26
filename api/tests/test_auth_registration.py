@@ -468,6 +468,65 @@ async def test_serves_a_read_only_bilingual_document_set_in_each_contour(
         assert rejected.status_code == 405
 
 
+# spec:test legal-documents#keep-terms-consent-acceptance-marks
+async def test_code_preserves_original_consent_across_document_publication(
+    auth_stand: AuthStand,
+) -> None:
+    email = "acceptance-history@example.com"
+    registration = await auth_stand.registration(email)
+    assert (await auth_stand.post("register", registration)).status_code == 200
+    old = await auth_stand.document(LegalDocumentKind.TERMS_OF_USE)
+    async with auth_stand.session() as session:
+        session.add(
+            LegalDocumentVersion(
+                document=old.kind.value,
+                version="1",
+                title_en=old.title,
+                title_ru="Новые условия",
+                text_ru="Новая редакция",
+                text_en="A newer version",
+            )
+        )
+        await session.commit()
+
+    assert (await auth_stand.document(old.kind)).version == "1"
+    original_code = auth_stand.code()
+    fresh = await auth_stand.registration(email)
+    assert_error(
+        await auth_stand.post("code/verify", auth_stand.verification(email, fresh)),
+        400,
+        ErrorCode.REGISTRATION_REQUIRED,
+    )
+    assert await auth_stand.counts() == (0, 0, 0, 0)
+
+    auth_stand.clock.now += sign_in_codes.RESEND_SECONDS
+    assert (
+        await auth_stand.post("register", {**registration, "language": "ru"})
+    ).status_code == 200
+    assert auth_stand.code() != original_code
+    package = package_from(
+        await auth_stand.post(
+            "code/verify", auth_stand.verification(email, registration)
+        )
+    )
+    created = await auth_stand.post(
+        "registration/finish", auth_stand.finish_form(package, "preservedterms")
+    )
+    assert created.status_code == 201
+    result = FinishRegistrationResult.model_validate_json(created.content)
+    assert result.session is not None
+    terms = next(
+        entry
+        for entry in result.session.account.acceptances
+        if entry.kind.value == old.kind.value
+    )
+    initial = next(
+        entry for entry in package.claims.consents if entry.document == old.kind
+    )
+    assert terms.version == initial.version == old.version
+    assert terms.accepted_at == initial.accepted_at
+
+
 # spec:test email-code-sign-in#route-unknown-email-to-registration
 # spec:test account-registration#send-code-on-registration
 # spec:test account-registration#defer-personal-data-until-finish
