@@ -1060,6 +1060,28 @@ async def test_login_proposal_and_validation_use_one_contours_accounts(
     ).status_code == 201
 
 
+async def test_registration_preflight_allows_configured_origins_only(
+    api_client: AsyncClient,
+) -> None:
+    settings = get_settings()
+    path = "/api/v1/auth/registration/finish"
+    headers = {
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "content-type",
+    }
+    for url in (settings.web_url_world, settings.web_url_ru):
+        origin = url.rstrip("/")
+        response = await api_client.options(path, headers={**headers, "Origin": origin})
+        assert response.status_code == 200
+        assert response.headers["Access-Control-Allow-Origin"] == origin
+        assert response.headers["Access-Control-Allow-Credentials"] == "true"
+    outside = await api_client.options(
+        path, headers={**headers, "Origin": "https://outside.example.com"}
+    )
+    assert outside.status_code == 400
+    assert "Access-Control-Allow-Origin" not in outside.headers
+
+
 # spec:test region-contours#verify-package-offline
 # spec:test region-contours#reject-invalid-tickets
 # spec:test legal-documents#store-selected-contour-consents

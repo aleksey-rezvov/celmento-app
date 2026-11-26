@@ -21,6 +21,8 @@ export function apiClient(
 
   const client = createClient<paths>({
     baseUrl: new URL("/api/v1", origin).href,
+    // spec:impl region-contours#create-account-directly-selected-contour
+    credentials: isCurrent ? "same-origin" : "include",
     headers: token ? { Authorization: "Bearer " + token } : undefined,
   });
   if (token) {

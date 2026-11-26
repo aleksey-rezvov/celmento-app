@@ -982,6 +982,8 @@ test("uses the selected contour's documents and creation endpoint and follows th
   await expectDeviceProof(authorize, "handoff", "world", registration, "ru");
   const finish = requests.find((entry) => new URL(entry.url).pathname.endsWith("/finish"));
   expect(finish?.url).toBe(ru + "/api/v1/auth/registration/finish");
+  expect(finish?.credentials).toBe("include");
+  expect(finish?.headers.has("Authorization")).toBe(false);
   expect(await finish?.clone().json()).toMatchObject({
     consents: [
       { document: "terms_of_use", version: "ru-v1" },
