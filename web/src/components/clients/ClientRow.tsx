@@ -16,7 +16,7 @@ interface BalanceBadgeProps {
   summary: Balance;
 }
 
-function BalanceBadge({ summary }: BalanceBadgeProps): ReactElement | null {
+export function BalanceBadge({ summary }: BalanceBadgeProps): ReactElement | null {
   const t = useTranslation();
   const language = useLanguage();
   const amount = Number(summary.balance.amount);

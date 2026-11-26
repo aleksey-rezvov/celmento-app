@@ -2,8 +2,8 @@
 
 import Image from "next/image";
 import { useEffect, useState, type ReactElement } from "react";
+import { useAccount } from "@/lib/account";
 import { apiClient } from "@/lib/api/client";
-import { getSessionToken } from "@/lib/session";
 
 interface LoadedPhoto {
   clientId: string;
@@ -12,10 +12,11 @@ interface LoadedPhoto {
 }
 
 export function useClientPhoto(clientId: string, photoUrl: string | null): string | null {
+  const { currentSessionToken } = useAccount();
   const [photo, setPhoto] = useState<LoadedPhoto | null>(null);
 
   useEffect(() => {
-    const token = getSessionToken();
+    const token = currentSessionToken();
     if (!token || !photoUrl) return;
 
     const controller = new AbortController();
@@ -28,7 +29,7 @@ export function useClientPhoto(clientId: string, photoUrl: string | null): strin
           cache: "no-store",
           signal: controller.signal,
         });
-        if (!data || controller.signal.aborted || getSessionToken() !== session) return;
+        if (!data || controller.signal.aborted || currentSessionToken() !== session) return;
 
         url = URL.createObjectURL(data);
         setPhoto({ clientId, version, url });
@@ -42,7 +43,7 @@ export function useClientPhoto(clientId: string, photoUrl: string | null): strin
       controller.abort();
       if (url) URL.revokeObjectURL(url);
     };
-  }, [clientId, photoUrl]);
+  }, [clientId, currentSessionToken, photoUrl]);
 
   return photo?.clientId === clientId && photo.version === photoUrl ? photo.url : null;
 }
