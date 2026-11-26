@@ -1,0 +1,29 @@
+{
+  "practice_columns": [
+    "Date",
+    "Client",
+    "Contact",
+    "Individual/Group",
+    "Number of participants",
+    "Duration (h)",
+    "Payment type",
+    "Price",
+    "Currency"
+  ],
+  "service_columns": [
+    "No.",
+    "Date",
+    "Topic",
+    "Duration (h)",
+    "Meeting link",
+    "Price",
+    "Currency",
+    "Organization"
+  ],
+  "individual": "Individual",
+  "payment": {
+    "paid": "Paid",
+    "pro_bono": "Pro bono",
+    "barter": "Barter"
+  }
+}

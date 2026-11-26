@@ -316,3 +316,8 @@ class RecordsHoursLogType(StrEnum):
     SUPERVISION = "supervision"
     THERAPY = "therapy"
     TRAINING = "training"
+
+
+class RecordsHoursExportFormat(StrEnum):
+    ICF = "icf"
+    SESSIONS = "sessions"

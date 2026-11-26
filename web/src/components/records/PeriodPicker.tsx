@@ -3,7 +3,7 @@ import { ChoiceChips } from "@/components/shell/ChoiceChips";
 import { Sheet } from "@/components/shell/Sheet";
 import { useAccount } from "@/lib/account";
 import type { Schemas } from "@/lib/api/client";
-import { useLanguage, useTranslation } from "@/lib/i18n";
+import { useLanguage, useTranslation, type MessageKey } from "@/lib/i18n";
 import { periodLabel, periodOptions, usePeriod } from "@/lib/records-period";
 import { zonedDay } from "@/lib/zoned-date";
 
@@ -57,7 +57,15 @@ function DateRange({ period, onApply }: DateRangeProps): ReactElement {
   );
 }
 
-export function PeriodPicker(): ReactElement {
+interface PeriodPickerProps {
+  title?: MessageKey;
+  allTimeLabel?: MessageKey;
+}
+
+export function PeriodPicker({
+  title = "acc.title",
+  allTimeLabel = periodOptions.all,
+}: PeriodPickerProps): ReactElement {
   const t = useTranslation();
   const language = useLanguage();
   const [period, setPeriod] = usePeriod();
@@ -78,20 +86,24 @@ export function PeriodPicker(): ReactElement {
         aria-haspopup="dialog"
         aria-expanded={picker !== null}
       >
-        {periodLabel(period, language, t)} <span aria-hidden="true">⌄</span>
+        {period.kind === "all" ? t(allTimeLabel) : periodLabel(period, language, t)}{" "}
+        <span aria-hidden="true">⌄</span>
       </button>
       {picker !== null && (
         <Sheet
-          title={t(picker === "range" ? "acc.period_custom" : "acc.title")}
+          title={t(picker === "range" ? "acc.period_custom" : title)}
           onClose={() => setPicker(null)}
         >
           {picker === "range" ? (
             <DateRange period={period} onApply={apply} />
           ) : (
             <ChoiceChips
-              label={t("acc.title")}
+              label={t(title)}
               value={period.kind}
-              options={kinds.map((value) => ({ value, label: t(periodOptions[value]) }))}
+              options={kinds.map((value) => ({
+                value,
+                label: t(value === "all" ? allTimeLabel : periodOptions[value]),
+              }))}
               onChange={(kind) => {
                 if (kind === "custom") setPicker("range");
                 else apply({ kind, from: null, to: null });

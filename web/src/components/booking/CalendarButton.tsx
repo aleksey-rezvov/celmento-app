@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { useTranslation, type MessageKey } from "@/lib/i18n";
+import { downloadFile } from "@/lib/share";
 
 interface CalendarButtonProps {
   label: "done.add_calendar" | "meet.add_calendar";
@@ -30,17 +31,7 @@ export function CalendarButton({ label, load, onMissing }: CalendarButtonProps):
         return;
       }
 
-      const url = URL.createObjectURL(data);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = "celmento-session.ics";
-      document.body.append(anchor);
-      try {
-        anchor.click();
-      } finally {
-        anchor.remove();
-        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-      }
+      downloadFile(data, "celmento-session.ics");
     } catch {
       if (!controller.signal.aborted) setError("extra.auth_network_error");
     } finally {

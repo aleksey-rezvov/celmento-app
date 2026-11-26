@@ -91,6 +91,7 @@ app.add_middleware(
     allow_origins=[web_url(Contour.RU), web_url(Contour.WORLD)],
     allow_methods=["*"],
     allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
+    expose_headers=["Content-Disposition"],
 )
 app.mount(API_PREFIX, api)
 app.mount(

@@ -17,6 +17,7 @@ import { setSessionToken } from "@/lib/session";
 import AppLayout from "./(app)/app/layout";
 import Notes from "./(app)/app/notes/page";
 import Balances from "./(app)/app/records/balances/page";
+import HoursExport from "./(app)/app/records/hours/export/page";
 import Hours from "./(app)/app/records/hours/page";
 import RecordsLayout from "./(app)/app/records/layout";
 import Operations from "./(app)/app/records/operations/page";
@@ -76,6 +77,8 @@ const incomePath = recordsPath + "/operations?kind=income";
 const expensesPath = recordsPath + "/operations?kind=expenses";
 const growthPath = recordsPath + "/hours?type=supervision";
 const practicePath = recordsPath + "/hours?type=practice";
+const hoursExportPath = recordsPath + "/hours/export";
+const exportEndpoint = "/records/hours/export";
 const balancesPath = recordsPath + "/balances";
 const clientId = "019ac7a0-0000-7ab1-b031-111111111111";
 const meetingId = "019ac7a0-0000-7ab1-b031-222222222222";
@@ -229,6 +232,9 @@ function renderRoute(href: string): ReactElement {
     case recordsPath + "/hours":
       records = <Hours />;
       break;
+    case hoursExportPath:
+      records = <HoursExport />;
+      break;
     case balancesPath:
       records = <Balances />;
       break;
@@ -270,6 +276,54 @@ function refocus(): void {
   act(() => window.dispatchEvent(new Event("focus")));
 }
 
+const emptyHours: HoursLog = {
+  total_hours: 0,
+  period_hours: 0,
+  breakdown: { paid: 0, pro_bono: 0, individual: 0 },
+  items: [],
+};
+const csvText = "\uFEFFDate,Client\r\n2026-11-08,Nora Silva\r\n";
+
+function csv(filename: string): Response {
+  return new Response(csvText, {
+    headers: {
+      "content-type": "text/csv; charset=utf-8",
+      "Content-Disposition": 'attachment; filename="' + filename + '"',
+    },
+  });
+}
+
+function observeDownloads(): { create: ReturnType<typeof vi.fn>; filenames: string[] } {
+  const create = vi.fn(() => "blob:https://localhost/records-spreadsheet");
+  const filenames: string[] = [];
+  vi.stubGlobal(
+    "URL",
+    class extends URL {
+      static createObjectURL = create;
+      static revokeObjectURL = vi.fn();
+    },
+  );
+  vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+    this: HTMLAnchorElement,
+  ) {
+    filenames.push(this.download);
+  });
+  return { create, filenames };
+}
+
+function fileBytes(file: File): Promise<number[]> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (reader.result instanceof ArrayBuffer) {
+        resolve(Array.from(new Uint8Array(reader.result)));
+      } else reject(new Error("No file bytes"));
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsArrayBuffer(file);
+  });
+}
+
 beforeAll(() => {
   HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
     this.open = true;
@@ -296,6 +350,153 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
+});
+
+// spec:test records-hours-export#open-export
+// spec:test records-hours-export#choose-period-format
+test("opens export from all four logs and starts a separate all-time period", async () => {
+  const requests = serve((path) => {
+    if (path === "/records/summary") return json(summary({ has_outcomes: true }));
+    if (path === "/records/hours") return json(emptyHours);
+    if (path === exportEndpoint) return csv("celmento_training_all.csv");
+    throw new Error("Unexpected read " + path);
+  });
+  mount();
+  const period = await screen.findByRole("button", { name: t("acc.period_all") });
+  fireEvent.click(period);
+  fireEvent.click(
+    within(screen.getByRole("dialog")).getByRole("button", { name: t("acc.period_month") }),
+  );
+  await screen.findByRole("heading", { name: t("acc.practice_hours") });
+  fireEvent.click(tile("acc.practice_hours"));
+  const labels = [
+    ["practice", "hours.practice"],
+    ["supervision", "hours.supervision"],
+    ["therapy", "hours.therapy"],
+    ["training", "hours.training"],
+  ] as const;
+  for (const [type, label] of labels) {
+    const tab = recordsMain().getByRole("button", { name: t(label) });
+    fireEvent.click(tab);
+    expect(recordsMain().getByRole("link", { name: t("export.button") })).toHaveProperty(
+      "pathname",
+      hoursExportPath,
+    );
+    expect(
+      recordsMain()
+        .getByRole("link", { name: t("export.button") })
+        .getAttribute("href"),
+    ).toBe(hoursExportPath + "?type=" + type);
+  }
+  fireEvent.click(recordsMain().getByRole("link", { name: t("export.button") }));
+  expect(recordsMain().getByRole("button", { name: t("export.all_time") })).toBeDefined();
+  expect(recordsMain().getByRole("heading", { name: t("hours.training") })).toBeDefined();
+  expect(recordsMain().queryByRole("button", { name: t("export.icf") })).toBeNull();
+  expect(recordsMain().queryByRole("button", { name: t("export.sessions") })).toBeNull();
+  await waitFor(() =>
+    expect(queries(requests, exportEndpoint)).toEqual([
+      { type: "training", period: "all", format: "sessions" },
+    ]),
+  );
+  fireEvent.click(recordsMain().getByRole("link", { name: t("extra.back") }));
+  expect(recordsMain().getByText(t("acc.period_month"))).toBeDefined();
+  expect(
+    recordsMain()
+      .getByRole("button", { name: t("hours.training") })
+      .getAttribute("aria-pressed"),
+  ).toBe("true");
+});
+
+// spec:test records-hours-export#choose-period-format
+// spec:test records-hours-export#warn-before-export
+// spec:test records-hours-export#share-or-download
+test("warns before exporting and downloads the chosen practice period and format with the CSV bytes", async () => {
+  const { create, filenames } = observeDownloads();
+  const name = "celmento_practice_2026-11-01_2026-11-10.csv";
+  const requests = serve((path, url) => {
+    if (path !== exportEndpoint) throw new Error("Unexpected read " + path);
+    return csv(url.searchParams.get("period") === "custom" ? name : "celmento_practice_all.csv");
+  });
+  mount(hoursExportPath + "?type=practice");
+  const warning = await screen.findByText(t("export.warning"));
+  const action = recordsMain().getByRole("button", { name: t("export.button") });
+  expect(action.getAttribute("aria-describedby")).toBe(warning.id);
+  expect(
+    recordsMain()
+      .getByRole("button", { name: t("export.icf") })
+      .getAttribute("aria-pressed"),
+  ).toBe("true");
+  await waitFor(() => expect(action).toHaveProperty("disabled", false));
+  expect(create).not.toHaveBeenCalled();
+
+  fireEvent.click(recordsMain().getByRole("button", { name: t("export.sessions") }));
+  fireEvent.click(recordsMain().getByRole("button", { name: t("export.all_time") }));
+  fireEvent.click(
+    within(screen.getByRole("dialog")).getByRole("button", { name: t("acc.period_custom") }),
+  );
+  const range = within(screen.getByRole("dialog"));
+  fireEvent.change(range.getByLabelText(t("extra.records_from")), {
+    target: { value: "2026-11-01" },
+  });
+  fireEvent.change(range.getByLabelText(t("extra.records_to")), {
+    target: { value: "2026-11-10" },
+  });
+  fireEvent.click(range.getByRole("button", { name: t("extra.records_apply") }));
+  expect(action).toHaveProperty("disabled", true);
+  await waitFor(() => expect(action).toHaveProperty("disabled", false));
+  expect(queries(requests, exportEndpoint)).toEqual([
+    { type: "practice", period: "all", format: "icf" },
+    { type: "practice", period: "all", format: "sessions" },
+    {
+      type: "practice",
+      period: "custom",
+      from: "2026-11-01",
+      to: "2026-11-10",
+      format: "sessions",
+    },
+  ]);
+  fireEvent.click(action);
+  await waitFor(() => expect(filenames).toEqual([name]));
+  const file: unknown = create.mock.calls[0]?.[0];
+  expect(file).toBeInstanceOf(File);
+  if (!(file instanceof File)) throw new Error("CSV download must receive the prepared file.");
+  expect(await fileBytes(file)).toEqual(Array.from(new TextEncoder().encode(csvText)));
+});
+
+// spec:test records-hours-export#share-or-download
+test("shares the prepared CSV directly and leaves cancellation free of a download", async () => {
+  const { create } = observeDownloads();
+  const name = "celmento_supervision_all.csv";
+  const share = vi
+    .fn<(data: ShareData) => Promise<void>>()
+    .mockRejectedValue(new DOMException("Cancelled", "AbortError"));
+  const canShare = vi.fn(() => true);
+  vi.stubGlobal(
+    "navigator",
+    new Proxy(navigator, {
+      get(target, property) {
+        if (property === "share") return share;
+        if (property === "canShare") return canShare;
+        return Reflect.get(target, property, target);
+      },
+    }),
+  );
+  serve((path) => {
+    if (path !== exportEndpoint) throw new Error("Unexpected read " + path);
+    return csv(name);
+  });
+  mount(hoursExportPath + "?type=supervision");
+  const action = await screen.findByRole("button", { name: t("export.button") });
+  await waitFor(() => expect(action).toHaveProperty("disabled", false));
+  fireEvent.click(action);
+  expect(share).toHaveBeenCalledTimes(1);
+  const file = share.mock.calls[0]?.[0].files?.[0];
+  expect(file?.name).toBe(name);
+  expect(file?.type).toBe("text/csv");
+  expect(canShare).toHaveBeenCalledWith({ files: [file] });
+  await waitFor(() => expect(action).toHaveProperty("disabled", false));
+  expect(create).not.toHaveBeenCalled();
+  expect(screen.queryByRole("alert")).toBeNull();
 });
 
 // spec:test accounting-summary#open-records-tab-screen-8-1

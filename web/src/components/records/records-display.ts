@@ -4,6 +4,7 @@ import type { Language, MessageKey } from "@/lib/i18n/messages";
 export const recordsPath = "/app/records";
 export const operationsPath = recordsPath + "/operations";
 export const hoursPath = recordsPath + "/hours";
+export const hoursExportPath = hoursPath + "/export";
 export const balancesPath = recordsPath + "/balances";
 
 export const operationLabels = {

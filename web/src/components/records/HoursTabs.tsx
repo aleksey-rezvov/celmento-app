@@ -7,6 +7,10 @@ import { logLabels } from "./records-display";
 type Log = Schemas["RecordsHoursLogType"];
 export const logs = ["practice", "supervision", "therapy", "training"] as const;
 
+export function hoursLogType(value: string | null): Log {
+  return logs.find((log) => log === value) ?? "practice";
+}
+
 interface HoursTabsProps {
   value: Log;
   onChange: (value: Log) => void;

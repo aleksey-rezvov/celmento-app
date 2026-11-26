@@ -1,11 +1,12 @@
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 
 from celmento_api.auth import Database, LeaderAccount
-from celmento_api.errors import error_responses
+from celmento_api.errors import error_responses, invalid_request_value
 from celmento_api.models.enums import (
+    RecordsHoursExportFormat,
     RecordsHoursLogType,
     RecordsOperationFilter,
     RecordsPeriodKind,
@@ -25,9 +26,14 @@ from celmento_api.services.records import (
     resolve_period,
     summary,
 )
+from celmento_api.services.records_export import hours_export_csv
 from celmento_api.storage import media_origin
 
 router: APIRouter = APIRouter(prefix="/records", tags=["records"])
+
+
+class HoursExportResponse(Response):
+    media_type: str | None = "text/csv"
 
 
 def records_period(
@@ -91,6 +97,50 @@ async def get_hours(
 ) -> RecordsHoursLog:
     period, _ = selection
     return await hours_log(session, leader, period, log, media_origin(request))
+
+
+# spec:impl records-hours-export#leader-only
+@router.get(
+    "/hours/export",
+    operation_id="exportRecordsHours",
+    summary="Export one hours log as a certification spreadsheet",
+    response_class=HoursExportResponse,
+    response_model=None,
+    responses={
+        200: {
+            "content": {"text/csv": {"schema": {"type": "string", "format": "binary"}}},
+            "headers": {
+                "Content-Disposition": {"schema": {"type": "string"}},
+                "Cache-Control": {"schema": {"type": "string"}},
+            },
+        },
+        **error_responses(401, 403, 422, 500),
+    },
+)
+async def export_hours(
+    leader: LeaderAccount,
+    session: Database,
+    selection: PeriodSelection,
+    log: Annotated[RecordsHoursLogType, Query(alias="type")],
+    export_format: Annotated[RecordsHoursExportFormat, Query(alias="format")],
+) -> HoursExportResponse:
+    if (
+        export_format == RecordsHoursExportFormat.ICF
+        and log != RecordsHoursLogType.PRACTICE
+    ):
+        raise invalid_request_value("query", "format")
+
+    period, _ = selection
+    content = await hours_export_csv(session, leader, period, log, export_format)
+    period_name = f"{period.from_}_{period.to}" if period.from_ and period.to else "all"
+    # spec:impl records-hours-export#file-name
+    return HoursExportResponse(
+        content,
+        headers={
+            "Content-Disposition": f'attachment; filename="celmento_{log.value}_{period_name}.csv"',
+            "Cache-Control": "private, no-store",
+        },
+    )
 
 
 @router.get(

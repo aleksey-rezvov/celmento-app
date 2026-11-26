@@ -28,7 +28,7 @@ interface Snapshot<T> {
   result: Result<T>;
 }
 
-function useRecordsResource<T>(request: RecordsRequest<T>): RecordsResource<T> {
+function useRecordsResource<T>(request: RecordsRequest<T>, live = true): RecordsResource<T> {
   const { account, currentSessionToken } = useAccount();
   const accountId = account.id;
   const timeZone = account.time_zone;
@@ -68,12 +68,12 @@ function useRecordsResource<T>(request: RecordsRequest<T>): RecordsResource<T> {
     }
 
     void load(session);
-    const unsubscribe = subscribeVisibleRevalidation(() => void load(session));
+    const unsubscribe = live ? subscribeVisibleRevalidation(() => void load(session)) : null;
     return () => {
-      unsubscribe();
+      unsubscribe?.();
       pending?.abort();
     };
-  }, [accountId, attempt, currentSessionToken, request, timeZone]);
+  }, [accountId, attempt, currentSessionToken, live, request, timeZone]);
 
   const result =
     snapshot?.accountId === accountId &&
@@ -130,6 +130,31 @@ export function useRecordsHours(
   );
   // spec:impl hours-log#update-totals-breakdown-list-immediately
   return useRecordsResource(request);
+}
+
+export function useRecordsHoursExport(
+  period: Period,
+  type: Schemas["RecordsHoursLogType"],
+  format: Schemas["RecordsHoursExportFormat"],
+): RecordsResource<File> {
+  const request = useCallback<RecordsRequest<File>>(
+    async (api, signal) => {
+      const { data, response } = await api.GET("/records/hours/export", {
+        params: { query: { ...periodQuery(period), type, format } },
+        parseAs: "arrayBuffer",
+        signal,
+        cache: "no-store",
+      });
+      if (!data || !response.ok) return { response };
+      const header = response.headers.get("Content-Disposition");
+      const filename = /(?:^|;)\s*filename="?([a-z0-9_-]+\.csv)"?(?:;|$)/iu.exec(header ?? "")?.[1];
+      const suffix = period.kind === "custom" ? `${period.from}_${period.to}` : period.kind;
+      const fallback = `celmento_${type}_${suffix}.csv`;
+      return { data: new File([data], filename ?? fallback, { type: "text/csv" }), response };
+    },
+    [format, period, type],
+  );
+  return useRecordsResource(request, false);
 }
 
 const balances: RecordsRequest<Schemas["RecordsBalanceList"]> = (api, signal) =>
