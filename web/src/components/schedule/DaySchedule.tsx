@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } 
 import { useAccount } from "@/lib/account";
 import type { Schemas } from "@/lib/api/client";
 import { useTranslation, type MessageKey } from "@/lib/i18n";
+import { offlineCache } from "@/lib/offline-cache";
+import { BookingBlocks, type BookingBlocksUpdate } from "./BookingBlocks";
 import { DayView } from "./DayView";
 import {
   listScheduledMeetings,
@@ -36,7 +38,7 @@ export function DaySchedule({
   const [schedule, setSchedule] = useState<Schemas["MeetingList"] | null>(null);
   const [failed, setFailed] = useState<MessageKey | null>(null);
   const [attempt, setAttempt] = useState(0);
-  const loading = useRef(false);
+  const loading = useRef<AbortController | null>(null);
   const refresh = useCallback(() => {
     if (!loading.current) setAttempt((value) => value + 1);
   }, []);
@@ -45,7 +47,7 @@ export function DaySchedule({
   useEffect(() => {
     const controller = new AbortController();
     const { signal } = controller;
-    loading.current = true;
+    loading.current = controller;
     void listScheduledMeetings(
       { from: day, to: day },
       account.time_zone,
@@ -73,7 +75,7 @@ export function DaySchedule({
         },
       )
       .finally(() => {
-        if (!signal.aborted) loading.current = false;
+        if (loading.current === controller) loading.current = null;
       });
     return () => controller.abort();
   }, [account.time_zone, attempt, currentSessionToken, day, onScheduleLoaded]);
@@ -82,6 +84,23 @@ export function DaySchedule({
     () => (schedule ? scheduleItems(schedule, leader) : []),
     [leader, schedule],
   );
+  const bookingBlocks = leader ? (schedule?.booking_blocks ?? []) : [];
+
+  function applyBookingBlocks(update: BookingBlocksUpdate): void {
+    const range = { from: day, to: day };
+    const timeZone = account.time_zone;
+    function updated(value: Schemas["MeetingList"]): Schemas["MeetingList"] {
+      return { ...value, booking_blocks: update(value.booking_blocks ?? []) };
+    }
+    loading.current?.abort();
+    loading.current = null;
+    setSchedule((value) => (value ? updated(value) : value));
+    void offlineCache(currentSessionToken).then((cache) => {
+      const stored = cache?.meetings(range, timeZone);
+      if (stored) cache?.saveMeetings(range, timeZone, updated(stored));
+      refresh();
+    });
+  }
 
   return (
     <>
@@ -96,14 +115,25 @@ export function DaySchedule({
       {schedule === null ? (
         <div aria-busy={!failed} />
       ) : (
-        <DayView
-          {...view}
-          day={day}
-          leader={leader}
-          meetings={meetings}
-          attendedTotal={schedule.attended_total}
-          specialistsCount={schedule.specialists_count}
-        />
+        <>
+          {leader && (
+            <BookingBlocks
+              blocks={bookingBlocks}
+              day={day}
+              timeZone={account.time_zone}
+              onChange={applyBookingBlocks}
+            />
+          )}
+          <DayView
+            {...view}
+            day={day}
+            leader={leader}
+            meetings={meetings}
+            bookingBlocks={bookingBlocks}
+            attendedTotal={schedule.attended_total}
+            specialistsCount={schedule.specialists_count}
+          />
+        </>
       )}
     </>
   );

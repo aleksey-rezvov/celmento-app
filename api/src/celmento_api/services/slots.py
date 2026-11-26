@@ -10,14 +10,16 @@ from celmento_api.errors import AppError
 from celmento_api.models.account import Account
 from celmento_api.models.enums import ErrorCode, Weekday
 from celmento_api.models.leader import LeaderProfile
-from celmento_api.models.meeting import Meeting
+from celmento_api.models.meeting import BookingTimeBlock, Meeting
 from celmento_api.schemas.public import BookingSlotList, Slot
 from celmento_api.services.accounts import (
     DEFAULT_SESSION_DURATION,
+    TimeInterval,
     WorkingHours,
     effective_working_hours,
     leader_record,
 )
+from celmento_api.services.booking_time_blocks import booking_blocks_in_range
 from celmento_api.services.schedule import (
     attended_meeting_query,
     planned_end_expression,
@@ -59,12 +61,10 @@ def _inside_hours(
     )
 
 
-def _day_starts(
-    day: date, hours: WorkingHours, zone: ZoneInfo, duration: timedelta
+def _interval_starts(
+    day: date, interval: TimeInterval, zone: ZoneInfo, duration: timedelta
 ) -> set[datetime]:
-    working, start_time, end_time = hours
-    if not working:
-        return set()
+    start_time, end_time = interval
     opening = datetime.combine(day, start_time)
     closing = datetime.combine(day, end_time)
     wall = opening
@@ -84,6 +84,17 @@ def _day_starts(
     return starts
 
 
+def _day_starts(
+    day: date, hours: WorkingHours, zone: ZoneInfo, duration: timedelta
+) -> set[datetime]:
+    working, intervals = hours
+    starts: set[datetime] = set()
+    if working:
+        for interval in intervals:
+            starts.update(_interval_starts(day, interval, zone, duration))
+    return starts
+
+
 async def _busy_intervals(
     session: AsyncSession, account_id: UUID, lower: datetime, upper: datetime
 ) -> list[tuple[datetime, datetime]]:
@@ -97,7 +108,11 @@ async def _busy_intervals(
         .with_only_columns(Meeting.starts_at, end)
         .where(Meeting.starts_at < upper, end > lower)
     )
-    rows = await session.execute(own.union_all(attended))
+    blocks = booking_blocks_in_range(account_id, lower, upper).with_only_columns(
+        BookingTimeBlock.starts_at, BookingTimeBlock.ends_at
+    )
+    # spec:impl booking-time-blocks#exclude-from-booking
+    rows = await session.execute(own.union_all(attended, blocks))
     return [(starts_at, ends_at) for starts_at, ends_at in rows]
 
 
@@ -181,6 +196,7 @@ async def ensure_slot_bookable(
     zone = ZoneInfo(leader.time_zone)
     day = starts_at.astimezone(zone).date()
     hours = await effective_working_hours(session, leader.account_id)
+    # spec:impl working-hours-booking-rules#use-working-hours-only-public
     if starts_at not in _day_starts(
         day, hours[WEEKDAYS[day.weekday()]], zone, duration
     ):

@@ -688,11 +688,81 @@ test("edits the seven working intervals in quarter hours and saves an all-days-o
   await waitFor(() => expect(navigation.push).toHaveBeenLastCalledWith("/app/profile"));
   expect(await requestFor(requests, "PATCH", "/account")?.json()).toEqual({
     leader: {
-      working_hours: leader.working_hours.map((day) => ({ ...day, working: false })),
+      working_hours: leader.working_hours.map((day) => ({
+        ...day,
+        working: false,
+        additional_intervals: [],
+      })),
       session_duration_minutes: 60,
       session_format: "in_person",
       default_meeting_link: "https://call.example.test/ada",
     },
+  });
+});
+
+// spec:test working-hours-booking-rules#allow-more-one-working-interval
+// spec:test working-hours-booking-rules#validate-working-intervals
+test("saves non-overlapping weekday intervals and retains them while the day is off", async () => {
+  const requests = setupApi(account(leaderProfile));
+  render(providers(<SchedulePage />));
+  const monday = within(await screen.findByRole("group", { name: "Monday" }));
+  const startLabel = t("extra.profile_work_start");
+  const endLabel = t("extra.profile_work_end");
+  const save = screen.getByRole("button", { name: t("profile.save") });
+  const toggle = monday.getByRole("switch");
+
+  fireEvent.click(monday.getByRole("button", { name: t("extra.profile_work_add_interval") }));
+  const [, secondStart] = monday.getAllByRole("combobox", { name: startLabel });
+  const [firstEnd, secondEnd] = monday.getAllByRole("combobox", { name: endLabel });
+  if (!firstEnd || !secondStart || !secondEnd)
+    throw new Error("Both working intervals must have start and end selectors.");
+  expect(secondStart).toHaveProperty("value", "18:00");
+  expect(secondEnd).toHaveProperty("value", "19:00");
+  fireEvent.change(secondStart, { target: { value: "17:45" } });
+  expect(monday.getByRole("alert").textContent).toBe(t("extra.profile_work_overlap"));
+  expect(save).toHaveProperty("disabled", true);
+  fireEvent.click(save);
+  expect(requestFor(requests, "PATCH", "/account")).toBeUndefined();
+
+  fireEvent.change(firstEnd, { target: { value: "12:00" } });
+  fireEvent.change(secondStart, { target: { value: "14:00" } });
+  fireEvent.change(secondEnd, { target: { value: "17:30" } });
+  expect(monday.queryByRole("alert")).toBeNull();
+  fireEvent.click(toggle);
+  expect(secondStart).toHaveProperty("disabled", true);
+  expect(secondStart).toHaveProperty("value", "14:00");
+  fireEvent.click(save);
+  await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/app/profile"));
+  const firstSave: Update | undefined = await requestFor(requests, "PATCH", "/account")?.json();
+  expect(firstSave?.leader?.working_hours?.find(({ weekday }) => weekday === "mon")).toEqual({
+    weekday: "mon",
+    working: false,
+    start: "10:00",
+    end: "12:00",
+    additional_intervals: [{ start: "14:00", end: "17:30" }],
+  });
+
+  fireEvent.click(toggle);
+  expect(secondStart).toHaveProperty("disabled", false);
+  expect(secondEnd).toHaveProperty("value", "17:30");
+  const [removeFirst] = monday.getAllByRole("button", {
+    name: t("extra.profile_work_remove_interval"),
+  });
+  if (!removeFirst) throw new Error("The first interval can be removed when a second exists.");
+  fireEvent.click(removeFirst);
+  expect(monday.getByRole("combobox", { name: startLabel })).toHaveProperty("value", "14:00");
+  fireEvent.click(save);
+  await waitFor(() => expect(navigation.replace).toHaveBeenCalledTimes(2));
+  const lastSave: Update | undefined = await requests
+    .filter((request) => request.method === "PATCH")
+    .at(-1)
+    ?.json();
+  expect(lastSave?.leader?.working_hours?.find(({ weekday }) => weekday === "mon")).toEqual({
+    weekday: "mon",
+    working: true,
+    start: "14:00",
+    end: "17:30",
+    additional_intervals: [],
   });
 });
 

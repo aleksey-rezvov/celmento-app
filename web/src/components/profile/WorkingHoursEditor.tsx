@@ -2,7 +2,10 @@
 
 import type { ReactElement } from "react";
 import type { Schemas } from "@/lib/api/client";
-import { useLanguage, useTranslation } from "@/lib/i18n";
+import { useLanguage, useTranslation, type MessageKey } from "@/lib/i18n";
+
+type WorkingDay = Schemas["WorkingDay"];
+type WorkingInterval = Schemas["WorkingInterval"];
 
 const weekdays: readonly Schemas["Weekday"][] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 const quarterHours = Array.from({ length: 96 }, (_, index) => {
@@ -13,18 +16,66 @@ const quarterHours = Array.from({ length: 96 }, (_, index) => {
   return hours + ":" + minutes;
 });
 
-interface WorkingHoursEditorProps {
-  value: Schemas["WorkingDay"][];
-  onChange: (value: Schemas["WorkingDay"][]) => void;
+const timeFields = [
+  ["start", "extra.profile_work_start"],
+  ["end", "extra.profile_work_end"],
+] as const;
+
+function intervalsOf(day: WorkingDay): WorkingInterval[] {
+  return [{ start: day.start, end: day.end }, ...(day.additional_intervals ?? [])];
 }
 
-export function WorkingHoursEditor({ value, onChange }: WorkingHoursEditorProps): ReactElement {
+export function workingHoursIssue(day: WorkingDay): MessageKey | null {
+  if (!day.working && !day.additional_intervals?.length) return null;
+  const intervals = intervalsOf(day).sort((first, second) =>
+    first.start.localeCompare(second.start),
+  );
+  if (intervals.some(({ start, end }) => start >= end)) return "extra.profile_work_order";
+  // spec:impl working-hours-booking-rules#validate-working-intervals
+  if (intervals.some(({ end }, index) => end > (intervals[index + 1]?.start ?? end)))
+    return "extra.profile_work_overlap";
+  return null;
+}
+
+function nextInterval(intervals: WorkingInterval[], duration: number): WorkingInterval | undefined {
+  const lastEnd = intervals.reduce((latest, { end }) => (end > latest ? end : latest), "00:00");
+  function opening(quarters: number): WorkingInterval | undefined {
+    let earlier: WorkingInterval | undefined;
+    for (const [index, start] of quarterHours.entries()) {
+      const end = quarterHours[index + quarters];
+      if (!end) break;
+      if (intervals.some((interval) => start < interval.end && end > interval.start)) continue;
+      if (start >= lastEnd) return { start, end };
+      earlier ??= { start, end };
+    }
+    return earlier;
+  }
+  return opening(duration / 15) ?? opening(1);
+}
+
+interface WorkingHoursEditorProps {
+  value: WorkingDay[];
+  duration: number;
+  onChange: (value: WorkingDay[]) => void;
+}
+
+export function WorkingHoursEditor({
+  value,
+  duration,
+  onChange,
+}: WorkingHoursEditorProps): ReactElement {
   const t = useTranslation();
   const language = useLanguage();
   const dayNames = new Intl.DateTimeFormat(language, { weekday: "long", timeZone: "UTC" });
 
-  function change(weekday: Schemas["Weekday"], changes: Partial<Schemas["WorkingDay"]>): void {
+  function change(weekday: Schemas["Weekday"], changes: Partial<WorkingDay>): void {
     onChange(value.map((day) => (day.weekday === weekday ? { ...day, ...changes } : day)));
+  }
+
+  // spec:impl working-hours-booking-rules#allow-more-one-working-interval
+  function changeIntervals(weekday: Schemas["Weekday"], intervals: WorkingInterval[]): void {
+    const [first, ...others] = intervals;
+    if (first) change(weekday, { ...first, additional_intervals: others });
   }
 
   return (
@@ -35,6 +86,10 @@ export function WorkingHoursEditor({ value, onChange }: WorkingHoursEditorProps)
           const day = value.find((candidate) => candidate.weekday === weekday);
           if (!day) return null;
           const name = dayNames.format(new Date(Date.UTC(2024, 0, index + 1)));
+          const intervals = intervalsOf(day);
+          const next = day.working ? nextInterval(intervals, duration) : undefined;
+          const issue = workingHoursIssue(day);
+          const removable = intervals.length > 1;
 
           return (
             <fieldset key={weekday} className="profile-work-day">
@@ -49,36 +104,65 @@ export function WorkingHoursEditor({ value, onChange }: WorkingHoursEditorProps)
                 />
                 {t(day.working ? "profile.work_day" : "profile.day_off")}
               </label>
-              {/* spec:impl working-hours-booking-rules#allow-one-interval-day-start */}
-              <div className="profile-work-times">
-                <label>
-                  <span>{t("extra.profile_work_start")}</span>
-                  <select
-                    value={day.start}
-                    disabled={!day.working}
-                    onChange={(event) => change(weekday, { start: event.currentTarget.value })}
-                  >
-                    {quarterHours.map((time) => (
-                      <option key={time}>{time}</option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  <span>{t("extra.profile_work_end")}</span>
-                  <select
-                    value={day.end}
-                    disabled={!day.working}
-                    onChange={(event) => change(weekday, { end: event.currentTarget.value })}
-                  >
-                    {quarterHours.map((time) => (
-                      <option key={time}>{time}</option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              {day.working && day.end <= day.start && (
+              {intervals.map((interval, position) => (
+                <div key={position} className="profile-work-times" data-removable={removable}>
+                  {/* spec:impl working-hours-booking-rules#allow-one-interval-day-start */}
+                  {timeFields.map(([field, label]) => (
+                    <label key={field}>
+                      <span>{t(label)}</span>
+                      <select
+                        value={interval[field]}
+                        disabled={!day.working}
+                        onChange={(event) => {
+                          const time = event.currentTarget.value;
+                          changeIntervals(
+                            weekday,
+                            intervals.map((entry, index) =>
+                              index === position ? { ...entry, [field]: time } : entry,
+                            ),
+                          );
+                        }}
+                      >
+                        {quarterHours.map((time) => (
+                          <option key={time}>{time}</option>
+                        ))}
+                      </select>
+                    </label>
+                  ))}
+                  {removable && (
+                    <button
+                      className="profile-secondary profile-work-remove"
+                      type="button"
+                      disabled={!day.working}
+                      title={t("extra.profile_work_remove_interval")}
+                      aria-label={t("extra.profile_work_remove_interval")}
+                      onClick={() =>
+                        changeIntervals(
+                          weekday,
+                          intervals.filter((_, index) => index !== position),
+                        )
+                      }
+                    >
+                      <span aria-hidden="true">×</span>
+                    </button>
+                  )}
+                </div>
+              ))}
+              {day.working && (
+                <button
+                  type="button"
+                  className="profile-secondary profile-work-add"
+                  disabled={!next}
+                  onClick={() => {
+                    if (next) changeIntervals(weekday, [...intervals, next]);
+                  }}
+                >
+                  {t("extra.profile_work_add_interval")}
+                </button>
+              )}
+              {issue && (
                 <p className="profile-error" role="alert">
-                  {t("extra.profile_work_order")}
+                  {t(issue)}
                 </p>
               )}
             </fieldset>

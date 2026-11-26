@@ -66,7 +66,9 @@ def _start_of_day(day: date, zone: ZoneInfo) -> datetime:
     return datetime.combine(day, time.min, zone).astimezone(UTC)
 
 
-def date_bounds(first: date, last: date, zone: ZoneInfo) -> tuple[datetime, datetime]:
+def date_bounds(
+    first: date, last: date, zone: ZoneInfo, *, source: str = "query"
+) -> tuple[datetime, datetime]:
     try:
         lower = _start_of_day(first, zone)
         upper = (
@@ -75,7 +77,7 @@ def date_bounds(first: date, last: date, zone: ZoneInfo) -> tuple[datetime, date
             else _start_of_day(last + timedelta(days=1), zone)
         )
     except OverflowError:
-        raise invalid_request_value("query", "date") from None
+        raise invalid_request_value(source, "date") from None
     return lower, upper
 
 

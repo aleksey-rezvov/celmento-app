@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { ProfileInput } from "@/components/profile/ProfileFields";
 import { useProfileLeaveGuard } from "@/components/profile/ProfileLeaveGuard";
 import { profilePath, ProfileError, ProfileScreen } from "@/components/profile/ProfileScreen";
-import { WorkingHoursEditor } from "@/components/profile/WorkingHoursEditor";
+import { WorkingHoursEditor, workingHoursIssue } from "@/components/profile/WorkingHoursEditor";
 import { optionalText, webLinkValid } from "@/components/profile/profile-edit";
 import { useAccount } from "@/lib/account";
 import { apiClient, type Schemas } from "@/lib/api/client";
@@ -32,7 +32,10 @@ interface ScheduleFields {
 
 function scheduleFields(leader: Leader): ScheduleFields {
   return {
-    working_hours: leader.working_hours,
+    working_hours: leader.working_hours.map((day) => ({
+      ...day,
+      additional_intervals: day.additional_intervals ?? [],
+    })),
     session_duration_minutes:
       durations.find((duration) => leader.session_duration_minutes === duration) ?? 60,
     session_format: leader.session_format,
@@ -56,7 +59,7 @@ function ScheduleEditor({ leader }: ScheduleEditorProps): ReactElement {
   const dirty = JSON.stringify(values) !== JSON.stringify(scheduleFields(leader));
   const link = optionalText(values.default_meeting_link);
   const valid =
-    values.working_hours.every((day) => !day.working || day.start < day.end) &&
+    values.working_hours.every((day) => workingHoursIssue(day) === null) &&
     (link === null || webLinkValid(link));
 
   async function save(): Promise<boolean> {
@@ -99,6 +102,7 @@ function ScheduleEditor({ leader }: ScheduleEditorProps): ReactElement {
         <fieldset className="profile-schedule-fields" disabled={saving}>
           <WorkingHoursEditor
             value={values.working_hours}
+            duration={values.session_duration_minutes}
             onChange={(working_hours) => setValues({ ...values, working_hours })}
           />
           <div className="profile-group">

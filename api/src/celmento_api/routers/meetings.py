@@ -10,6 +10,8 @@ from celmento_api.errors import error_responses, invalid_request_value
 from celmento_api.schemas.account import TextInput
 from celmento_api.schemas.clients import IdempotencyKey
 from celmento_api.schemas.meetings import (
+    BookingTimeBlock,
+    BookingTimeBlockCreate,
     MeetingCalendarMonth,
     MeetingCreate,
     MeetingDefaults,
@@ -21,6 +23,10 @@ from celmento_api.schemas.meetings import (
     MonthName,
 )
 from celmento_api.services.account_access import lock_account
+from celmento_api.services.booking_time_blocks import (
+    create_booking_time_block,
+    delete_booking_time_block,
+)
 from celmento_api.services.meeting_views import (
     list_meetings,
     list_pending_outcomes,
@@ -82,6 +88,38 @@ async def post_meeting(
     result = await meeting_detail(session, meeting, leader, origin, datetime.now(UTC))
     await session.commit()
     return result
+
+
+@router.post(
+    "/booking-blocks",
+    operation_id="createBookingTimeBlock",
+    summary="Close time to self-booking on a calendar day",
+    status_code=201,
+    response_model=BookingTimeBlock,
+    responses=error_responses(401, 403, 422, 500),
+)
+async def post_booking_block(
+    body: BookingTimeBlockCreate, leader: LeaderAccount, session: Database
+) -> BookingTimeBlock:
+    block = await create_booking_time_block(session, leader.account_id, body)
+    await session.commit()
+    return block
+
+
+@router.delete(
+    "/booking-blocks/{booking_block_id}",
+    operation_id="deleteBookingTimeBlock",
+    summary="Reopen a closed interval for self-booking",
+    status_code=204,
+    response_class=Response,
+    responses=error_responses(401, 403, 404, 422, 500),
+)
+async def delete_booking_block(
+    booking_block_id: UUID, leader: LeaderAccount, session: Database
+) -> Response:
+    await delete_booking_time_block(session, leader.account_id, booking_block_id)
+    await session.commit()
+    return Response(status_code=204)
 
 
 @router.get(

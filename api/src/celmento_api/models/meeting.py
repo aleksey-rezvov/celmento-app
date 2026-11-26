@@ -136,6 +136,25 @@ class Meeting(Base):
     )
 
 
+class BookingTimeBlock(Base):
+    __tablename__ = "booking_time_block"
+    __table_args__ = (
+        CheckConstraint("ends_at > starts_at", name="booking_time_block_order"),
+        UniqueConstraint(
+            "account_id", "starts_at", "ends_at", name="booking_time_block_range_unique"
+        ),
+    )
+
+    booking_time_block_id: Mapped[UUID] = mapped_column(
+        primary_key=True, server_default=text("uuidv7()")
+    )
+    account_id: Mapped[UUID] = mapped_column(
+        ForeignKey("leader_profile.account_id", ondelete="CASCADE")
+    )
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class MeetingCreateReceipt(Base):
     __tablename__ = "meeting_create_receipt"
     __table_args__ = (

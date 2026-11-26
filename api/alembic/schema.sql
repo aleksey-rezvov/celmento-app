@@ -1,4 +1,4 @@
--- Alembic revision: 0010
+-- Alembic revision: 0011
 --
 -- PostgreSQL database dump
 --
@@ -134,6 +134,19 @@ CREATE TABLE public.balance_operation (
     CONSTRAINT balance_operation_currency_version_valid CHECK ((currency_version >= 1)),
     CONSTRAINT balance_operation_kind_known CHECK ((kind = ANY (ARRAY['payment'::text, 'session_charge'::text, 'missed_charge'::text, 'refund_to_balance'::text, 'deleted_meeting_charge'::text, 'correction'::text]))),
     CONSTRAINT balance_operation_payment_valid CHECK ((((kind <> 'payment'::text) AND created_by_system) OR ((kind = 'payment'::text) AND (NOT created_by_system) AND (amount > (0)::numeric) AND (meeting_id IS NULL))))
+);
+
+
+--
+-- Name: booking_time_block; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.booking_time_block (
+    booking_time_block_id uuid DEFAULT uuidv7() NOT NULL,
+    account_id uuid NOT NULL,
+    starts_at timestamp with time zone NOT NULL,
+    ends_at timestamp with time zone NOT NULL,
+    CONSTRAINT booking_time_block_order CHECK ((ends_at > starts_at))
 );
 
 
@@ -621,6 +634,21 @@ CREATE TABLE public.working_day (
 
 
 --
+-- Name: working_interval; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.working_interval (
+    working_interval_id uuid DEFAULT uuidv7() NOT NULL,
+    account_id uuid NOT NULL,
+    weekday text NOT NULL,
+    start_time time without time zone NOT NULL,
+    end_time time without time zone NOT NULL,
+    CONSTRAINT working_interval_order CHECK ((end_time > start_time)),
+    CONSTRAINT working_interval_quarter_hours CHECK ((((EXTRACT(minute FROM start_time) % (15)::numeric) = (0)::numeric) AND (EXTRACT(second FROM start_time) = (0)::numeric) AND (EXTRACT(hour FROM start_time) < (24)::numeric) AND ((EXTRACT(minute FROM end_time) % (15)::numeric) = (0)::numeric) AND (EXTRACT(second FROM end_time) = (0)::numeric) AND (EXTRACT(hour FROM end_time) < (24)::numeric)))
+);
+
+
+--
 -- Name: acceptance acceptance_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -690,6 +718,22 @@ ALTER TABLE ONLY public.alembic_version
 
 ALTER TABLE ONLY public.balance_operation
     ADD CONSTRAINT balance_operation_pkey PRIMARY KEY (balance_operation_id);
+
+
+--
+-- Name: booking_time_block booking_time_block_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.booking_time_block
+    ADD CONSTRAINT booking_time_block_pkey PRIMARY KEY (booking_time_block_id);
+
+
+--
+-- Name: booking_time_block booking_time_block_range_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.booking_time_block
+    ADD CONSTRAINT booking_time_block_range_unique UNIQUE (account_id, starts_at, ends_at);
 
 
 --
@@ -1005,6 +1049,22 @@ ALTER TABLE ONLY public.working_day
 
 
 --
+-- Name: working_interval working_interval_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.working_interval
+    ADD CONSTRAINT working_interval_pkey PRIMARY KEY (working_interval_id);
+
+
+--
+-- Name: working_interval working_interval_start_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.working_interval
+    ADD CONSTRAINT working_interval_start_unique UNIQUE (account_id, weekday, start_time);
+
+
+--
 -- Name: client_card_leader_linked_account_unique; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1297,6 +1357,14 @@ ALTER TABLE ONLY public.balance_operation
 
 
 --
+-- Name: booking_time_block booking_time_block_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.booking_time_block
+    ADD CONSTRAINT booking_time_block_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.leader_profile(account_id) ON DELETE CASCADE;
+
+
+--
 -- Name: client_card client_card_leader_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1574,6 +1642,14 @@ ALTER TABLE ONLY public.tag_history
 
 ALTER TABLE ONLY public.working_day
     ADD CONSTRAINT working_day_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.leader_profile(account_id) ON DELETE CASCADE;
+
+
+--
+-- Name: working_interval working_interval_account_id_weekday_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.working_interval
+    ADD CONSTRAINT working_interval_account_id_weekday_fkey FOREIGN KEY (account_id, weekday) REFERENCES public.working_day(account_id, weekday) ON DELETE CASCADE;
 
 
 --

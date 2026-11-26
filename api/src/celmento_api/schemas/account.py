@@ -92,11 +92,19 @@ class PlanStatus(BaseModel):
     subscription_until: date | None
 
 
+class WorkingInterval(BaseModel, extra="forbid"):
+    start: TimeOfDay
+    end: TimeOfDay
+
+
 class WorkingDay(BaseModel):
     weekday: Weekday
     working: Annotated[bool, Field(strict=True)]
     start: TimeOfDay
     end: TimeOfDay
+    additional_intervals: list[WorkingInterval] = Field(
+        default_factory=list[WorkingInterval]
+    )
 
 
 @with_config(extra="forbid")

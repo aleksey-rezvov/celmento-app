@@ -28,6 +28,7 @@ from celmento_api.schemas.meetings import (
 )
 from celmento_api.schemas.money import Money, format_amount
 from celmento_api.services.attended import attended_counts, attended_meetings
+from celmento_api.services.booking_time_blocks import list_booking_time_blocks
 from celmento_api.services.clients import client_reference, client_view
 from celmento_api.services.outcomes import client_charge, visible_charge_choice
 from celmento_api.services.schedule import (
@@ -197,6 +198,9 @@ async def list_meetings(
         else None,
         attended_total=attended_total,
         specialists_count=specialists_count,
+        booking_blocks=await list_booking_time_blocks(
+            session, leader.account_id, lower, upper
+        ),
     )
 
 

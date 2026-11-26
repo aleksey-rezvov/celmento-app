@@ -1,8 +1,9 @@
 from datetime import time
 from decimal import Decimal
+from itertools import pairwise
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import Nullable, delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,6 +22,7 @@ from celmento_api.models.enums import (
 )
 from celmento_api.models.leader import LeaderProfile as LeaderRecord
 from celmento_api.models.leader import WorkingDay as WorkingDayRecord
+from celmento_api.models.leader import WorkingInterval as WorkingIntervalRecord
 from celmento_api.models.legal import Acceptance
 from celmento_api.schemas.account import Account as AccountView
 from celmento_api.schemas.account import (
@@ -28,6 +30,7 @@ from celmento_api.schemas.account import (
     LeaderProfile,
     LeaderProfileUpdate,
     WorkingDay,
+    WorkingInterval,
 )
 from celmento_api.schemas.documents import AcceptanceRecord
 from celmento_api.schemas.money import format_amount
@@ -42,7 +45,8 @@ DEFAULT_CURRENCY: Currency = Currency.RUB
 DEFAULT_WORK_START: time = time(10)
 DEFAULT_WORK_END: time = time(18)
 DAYS_OFF: frozenset[Weekday] = frozenset({Weekday.SAT, Weekday.SUN})
-type WorkingHours = tuple[bool, time, time]
+type TimeInterval = tuple[time, time]
+type WorkingHours = tuple[bool, tuple[TimeInterval, ...]]
 
 
 async def leader_record(session: AsyncSession, account_id: UUID) -> LeaderRecord:
@@ -67,15 +71,23 @@ def leader_contact(
 
 async def _working_days(
     session: AsyncSession, account_id: UUID
-) -> dict[Weekday, WorkingDayRecord]:
-    days = await session.scalars(
-        select(WorkingDayRecord).where(WorkingDayRecord.account_id == account_id)
+) -> dict[Weekday, tuple[WorkingDayRecord, list[TimeInterval]]]:
+    rows = await session.execute(
+        select(WorkingDayRecord, Nullable(WorkingIntervalRecord))
+        .outerjoin(WorkingIntervalRecord)
+        .where(WorkingDayRecord.account_id == account_id)
+        .order_by(WorkingIntervalRecord.start_time)
     )
-    return {Weekday(day.weekday): day for day in days}
+    days: dict[Weekday, tuple[WorkingDayRecord, list[TimeInterval]]] = {}
+    for day, interval in rows:
+        _, additional = days.setdefault(Weekday(day.weekday), (day, []))
+        if interval is not None:
+            additional.append((interval.start_time, interval.end_time))
+    return days
 
 
 def _default_working_day(weekday: Weekday) -> WorkingHours:
-    return weekday not in DAYS_OFF, DEFAULT_WORK_START, DEFAULT_WORK_END
+    return weekday not in DAYS_OFF, ((DEFAULT_WORK_START, DEFAULT_WORK_END),)
 
 
 async def effective_working_hours(
@@ -83,18 +95,26 @@ async def effective_working_hours(
 ) -> dict[Weekday, WorkingHours]:
     overrides = await _working_days(session, account_id)
     hours = {weekday: _default_working_day(weekday) for weekday in Weekday}
-    for weekday, row in overrides.items():
-        hours[weekday] = row.working, row.start_time, row.end_time
+    for weekday, (row, additional) in overrides.items():
+        hours[weekday] = row.working, ((row.start_time, row.end_time), *additional)
     return hours
 
 
 def _working_day_view(weekday: Weekday, hours: WorkingHours) -> WorkingDay:
-    working, start, end = hours
+    working, intervals = hours
+    start, end = intervals[0]
     return WorkingDay(
         weekday=weekday,
         working=working,
         start=start.isoformat(timespec="minutes"),
         end=end.isoformat(timespec="minutes"),
+        additional_intervals=[
+            WorkingInterval(
+                start=lower.isoformat(timespec="minutes"),
+                end=upper.isoformat(timespec="minutes"),
+            )
+            for lower, upper in intervals[1:]
+        ],
     )
 
 
@@ -171,24 +191,42 @@ async def _update_working_days(
 ) -> None:
     days = await _working_days(session, account_id)
     updated_weekdays: set[Weekday] = set()
+    replacements: dict[Weekday, list[TimeInterval]] = {}
     for day in updates:
         start = time.fromisoformat(day.start)
         end = time.fromisoformat(day.end)
+        existing = days.get(day.weekday)
+        row, saved = existing if existing is not None else (None, [])
+        intervals = [(start, end)]
+        if "additional_intervals" in day.model_fields_set:
+            intervals.extend(
+                (time.fromisoformat(interval.start), time.fromisoformat(interval.end))
+                for interval in day.additional_intervals
+            )
+        else:
+            intervals.extend(saved)
+        intervals.sort()
         # spec:impl working-hours-booking-rules#allow-one-interval-day-start
         # spec:impl working-hours-booking-rules#block-save-show
-        # spec:impl working-hours-booking-rules#allow-more-one-working-interval
+        # spec:impl working-hours-booking-rules#validate-working-intervals
         if (
             day.weekday in updated_weekdays
-            or start.minute % 15 != 0
-            or end.minute % 15 != 0
-            or (day.working and start >= end)
+            or any(lower.minute % 15 or upper.minute % 15 for lower, upper in intervals)
+            or (
+                (day.working or len(intervals) > 1)
+                and any(lower >= upper for lower, upper in intervals)
+            )
+            or any(upper > lower for (_, upper), (lower, _) in pairwise(intervals))
         ):
             raise AppError(
                 400, ErrorCode.WORKING_HOURS_INVALID, {"weekday": day.weekday.value}
             )
         updated_weekdays.add(day.weekday)
-        row = days.get(day.weekday)
-        if (day.working, start, end) == _default_working_day(day.weekday):
+        start, end = intervals[0]
+        additional = intervals[1:]
+        if additional != saved:
+            replacements[day.weekday] = additional
+        if (day.working, tuple(intervals)) == _default_working_day(day.weekday):
             if row is not None:
                 await session.delete(row)
         elif row is None:
@@ -205,6 +243,25 @@ async def _update_working_days(
             row.working = day.working
             row.start_time = start
             row.end_time = end
+    if replacements:
+        await session.flush()
+        await session.execute(
+            delete(WorkingIntervalRecord).where(
+                WorkingIntervalRecord.account_id == account_id,
+                WorkingIntervalRecord.weekday.in_([day.value for day in replacements]),
+            )
+        )
+        # spec:impl working-hours-booking-rules#allow-more-one-working-interval
+        session.add_all(
+            WorkingIntervalRecord(
+                account_id=account_id,
+                weekday=weekday.value,
+                start_time=start,
+                end_time=end,
+            )
+            for weekday, intervals in replacements.items()
+            for start, end in intervals
+        )
 
 
 def _update_leader(

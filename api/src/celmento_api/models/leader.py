@@ -2,7 +2,16 @@ from datetime import time
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import CheckConstraint, ForeignKey, Numeric, Text, Time, text
+from sqlalchemy import (
+    CheckConstraint,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Numeric,
+    Text,
+    Time,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -88,5 +97,37 @@ class WorkingDay(Base):
     )
     weekday: Mapped[str] = mapped_column(Text, primary_key=True)
     working: Mapped[bool] = mapped_column()
+    start_time: Mapped[time] = mapped_column(Time)
+    end_time: Mapped[time] = mapped_column(Time)
+
+
+class WorkingInterval(Base):
+    __tablename__ = "working_interval"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ("account_id", "weekday"),
+            ("working_day.account_id", "working_day.weekday"),
+            ondelete="CASCADE",
+        ),
+        UniqueConstraint(
+            "account_id", "weekday", "start_time", name="working_interval_start_unique"
+        ),
+        CheckConstraint("end_time > start_time", name="working_interval_order"),
+        CheckConstraint(
+            "extract(minute FROM start_time) % 15 = 0 "
+            "AND extract(second FROM start_time) = 0 "
+            "AND extract(hour FROM start_time) < 24 "
+            "AND extract(minute FROM end_time) % 15 = 0 "
+            "AND extract(second FROM end_time) = 0 "
+            "AND extract(hour FROM end_time) < 24",
+            name="working_interval_quarter_hours",
+        ),
+    )
+
+    working_interval_id: Mapped[UUID] = mapped_column(
+        primary_key=True, server_default=text("uuidv7()")
+    )
+    account_id: Mapped[UUID] = mapped_column()
+    weekday: Mapped[str] = mapped_column(Text)
     start_time: Mapped[time] = mapped_column(Time)
     end_time: Mapped[time] = mapped_column(Time)

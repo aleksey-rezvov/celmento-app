@@ -24,7 +24,7 @@ from celmento_api.models.enums import (
     PaymentType,
     Specialization,
 )
-from celmento_api.schemas.account import Email, HttpLink, TextInput, Uri
+from celmento_api.schemas.account import Email, HttpLink, TextInput, TimeOfDay, Uri
 from celmento_api.schemas.clients import ClientCard, ClientRef
 from celmento_api.schemas.money import Money, Rate
 
@@ -157,6 +157,18 @@ class AttendedMeeting(BaseModel):
     charged: bool | None
 
 
+class BookingTimeBlockCreate(BaseModel, extra="forbid"):
+    date_: date = Field(alias="date")
+    start: TimeOfDay | None = None
+    end: TimeOfDay | None = None
+
+
+class BookingTimeBlock(BaseModel):
+    id: UUID
+    starts_at: AwareDatetime
+    ends_at: AwareDatetime
+
+
 class MeetingList(BaseModel):
     items: list[Meeting]
     attended: list[AttendedMeeting]
@@ -164,6 +176,9 @@ class MeetingList(BaseModel):
     next_outcome_in_seconds: Annotated[int, Field(ge=1)] | None
     attended_total: Annotated[int, Field(ge=0)]
     specialists_count: Annotated[int, Field(ge=0)]
+    booking_blocks: list[BookingTimeBlock] = Field(
+        default_factory=list[BookingTimeBlock]
+    )
 
 
 class MeetingPendingOutcomeList(BaseModel):
