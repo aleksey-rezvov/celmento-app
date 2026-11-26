@@ -33,6 +33,7 @@ import PublicLayout from "./[login]/layout";
 import InvitePage from "./[login]/meet/[id]/page";
 import PublicPage from "./[login]/page";
 import UnavailablePage from "./[login]/unavailable/page";
+import NotFound from "./not-found";
 
 const navigation = vi.hoisted(() => ({
   push: vi.fn(),
@@ -364,6 +365,24 @@ test.each([
     "master-red",
   );
   expect(requests).toHaveLength(1);
+});
+
+// spec:test character-illustrations#show-character-files-browser-pages
+test("uses the shared red character and localized link on a general browser 404", async () => {
+  vi.spyOn(navigator, "language", "get").mockReturnValue("ru-RU");
+  render(<NotFound />);
+
+  expect(
+    await screen.findByRole("heading", { name: t("public.not_found", undefined, "ru") }),
+  ).toBeTruthy();
+  expect(
+    screen
+      .getByRole("link", { name: t("extra.celmento_site", undefined, "ru") })
+      .getAttribute("href"),
+  ).toBe("/");
+  expect(screen.getByRole("main").querySelector("picture img")?.getAttribute("src")).toBe(
+    "/characters/celmento-master-red@200px.png",
+  );
 });
 
 // spec:test guest-booking-flow#open-form-9-2-after-guest

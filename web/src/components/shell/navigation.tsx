@@ -6,10 +6,12 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useRef,
   type ReactElement,
   type ReactNode,
 } from "react";
+import { offlinePageTarget } from "@/lib/offline-navigation";
 
 type NavigationGuard = (proceed: () => void) => void;
 type Navigate = (href: string) => void;
@@ -49,7 +51,14 @@ export function AppNavigationProvider({ children }: AppNavigationProviderProps):
 
   const navigate = useCallback(
     (href: string) => {
-      const proceed = (): void => router.push(href);
+      const proceed = (): void => {
+        const offline = offlinePageTarget(href);
+        if (offline) {
+          window.location.assign(offline.href);
+        } else {
+          router.push(href);
+        }
+      };
       if (activeGuard.current) {
         activeGuard.current(proceed);
       } else {
@@ -122,5 +131,5 @@ export function useAppNavigation(): Navigate {
 export function useNavigationGuard(guard: NavigationGuard | null): void {
   const { addGuard } = useNavigationState();
 
-  useEffect(() => (guard ? addGuard(guard) : undefined), [addGuard, guard]);
+  useLayoutEffect(() => (guard ? addGuard(guard) : undefined), [addGuard, guard]);
 }

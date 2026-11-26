@@ -1,5 +1,6 @@
 import type { Schemas } from "./api/client";
 import { normalizeEmail } from "./auth";
+import type { Contour } from "./contour";
 import { clearRegistrationDeviceKey } from "./registration-device";
 import { getSessionToken } from "./session";
 
@@ -7,6 +8,7 @@ const storageKeys = {
   intent: "celmento_app_registration_intent",
   origin: "celmento_app_registration_origin",
   registrationPackage: "celmento_app_registration_package",
+  registrationDestination: "celmento_app_registration_destination",
   email: "celmento_app_sign_in_email",
   signupEmail: "celmento_app_signup_email",
   signupNames: "celmento_app_signup_names",
@@ -31,6 +33,11 @@ export interface PendingCode {
 export interface SignInHandoff {
   email: string | null;
   origin: RegistrationOrigin | null;
+}
+
+export interface RegistrationDestination {
+  contour: Contour;
+  handoff?: string;
 }
 
 let codeScreenOpen = false;
@@ -197,6 +204,7 @@ export function prepareSignInHandoff(handoff: SignInHandoff): void {
   const signupEmail = loadSignupEmail();
   if (signupEmail && !matchesHandoff(handoff, signupEmail, previousOrigin)) {
     window.localStorage.removeItem(storageKeys.signupEmail);
+    window.localStorage.removeItem(storageKeys.signupNames);
   }
 
   if (handoff.origin) {
@@ -210,8 +218,10 @@ export function prepareSignInHandoff(handoff: SignInHandoff): void {
 
 export function savePackage(registrationPackage: RegistrationPackage): void {
   window.localStorage.setItem(storageKeys.registrationPackage, JSON.stringify(registrationPackage));
+  window.localStorage.removeItem(storageKeys.registrationDestination);
   window.localStorage.removeItem(storageKeys.code);
   window.localStorage.removeItem(storageKeys.signupEmail);
+  window.localStorage.removeItem(storageKeys.signupNames);
   codeScreenOpen = false;
 }
 
@@ -228,9 +238,42 @@ export function loadPackage(): RegistrationPackage | null {
 
   if (typeof window !== "undefined") {
     window.localStorage.removeItem(storageKeys.registrationPackage);
+    window.localStorage.removeItem(storageKeys.registrationDestination);
   }
 
   return null;
+}
+
+export function loadRegistrationDestination(
+  registration: RegistrationPackage,
+): RegistrationDestination | null {
+  const value = readJson(read(storageKeys.registrationDestination));
+  if (
+    isRecord(value) &&
+    value.deviceKey === registration.claims.device_public_key &&
+    value.issuedAt === registration.claims.issued_at &&
+    (value.contour === "ru" || value.contour === "world") &&
+    (value.handoff === undefined || typeof value.handoff === "string")
+  ) {
+    return { contour: value.contour, handoff: value.handoff };
+  }
+  return null;
+}
+
+export function saveRegistrationDestination(
+  registration: RegistrationPackage,
+  destination: RegistrationDestination,
+): boolean {
+  if (loadPackage()?.token !== registration.token) return false;
+  window.localStorage.setItem(
+    storageKeys.registrationDestination,
+    JSON.stringify({
+      ...destination,
+      deviceKey: registration.claims.device_public_key,
+      issuedAt: registration.claims.issued_at,
+    }),
+  );
+  return true;
 }
 
 export function clearRegistration(): void {

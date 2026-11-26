@@ -209,6 +209,13 @@ async def test_invite_uses_valid_public_details_and_signed_opt_in_recipient(
         and package.claims.origin.meeting_id == public_id
     )
     assert await auth_stand.counts() == before
+    assert_error(
+        await auth_stand.post(
+            "registration/handoff", auth_stand.handoff_form(package, Contour.RU)
+        ),
+        400,
+        ErrorCode.REGION_LOCKED,
+    )
     auth_stand.switch(Contour.RU)
     assert_error(
         await auth_stand.post(

@@ -207,6 +207,7 @@
   "extra.meeting_details_saved_outcome_pending": "Данные встречи сохранены. Сохраните итог ещё раз.",
   "extra.meeting_invalid_time": "Такого времени нет в вашем часовом поясе",
   "extra.meeting_missing": "Встреча не найдена",
+  "extra.meeting_offline": "Нет соединения",
   "extra.meeting_outcome_saved": "Итог сохранён",
   "extra.meeting_place": "Место",
   "extra.note_actions": "Действия с заметкой",

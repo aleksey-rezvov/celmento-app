@@ -51,6 +51,7 @@ from celmento_api.schemas.auth import (
     FinishOutcome,
     FinishRegistrationResult,
     LoginAvailability,
+    RegistrationHandoff,
     RegistrationPackage,
     SignInCodeRequestResult,
     SignInCodeVerificationResult,
@@ -76,6 +77,26 @@ ACTIVATION: tuple[LegalDocumentKind, ...] = (
 @dataclass(slots=True)
 class Clock:
     now: float = 0
+
+
+def registration_device_proof(
+    device: ec.EllipticCurvePrivateKey,
+    package_token: str,
+    purpose: str,
+    contour: Contour,
+    selected_contour: Contour | None = None,
+) -> str:
+    payload = f"celmento:registration\n{purpose}\n{contour.value}\n{package_token}"
+    if selected_contour is not None:
+        payload += f"\n{selected_contour.value}"
+    r, s = decode_dss_signature(
+        device.sign(payload.encode(), ec.ECDSA(hashes.SHA256()))
+    )
+    return (
+        urlsafe_b64encode(r.to_bytes(32, "big") + s.to_bytes(32, "big"))
+        .rstrip(b"=")
+        .decode("ascii")
+    )
 
 
 @dataclass(slots=True)
@@ -196,21 +217,34 @@ class AuthStand:
         }
 
     def package_ref(
-        self, package: RegistrationPackage, purpose: str
+        self,
+        package: RegistrationPackage,
+        purpose: str,
+        selected_contour: Contour | None = None,
     ) -> dict[str, object]:
-        contour = get_settings().contour.value
-        payload = (
-            f"celmento:registration\n{purpose}\n{contour}\n{package.token}".encode()
-        )
-        r, s = decode_dss_signature(
-            self.device.sign(payload, ec.ECDSA(hashes.SHA256()))
-        )
-        proof = (
-            urlsafe_b64encode(r.to_bytes(32, "big") + s.to_bytes(32, "big"))
-            .rstrip(b"=")
-            .decode("ascii")
+        proof = registration_device_proof(
+            self.device,
+            package.token,
+            purpose,
+            get_settings().contour,
+            selected_contour,
         )
         return {"registration_package": package.token, "device_proof": proof}
+
+    def handoff_form(
+        self, package: RegistrationPackage, selected: Contour
+    ) -> dict[str, object]:
+        return {
+            **self.package_ref(package, "handoff", selected),
+            "selected_contour": selected.value,
+        }
+
+    async def handoff_for(self, package: RegistrationPackage, selected: Contour) -> str:
+        response = await self.post(
+            "registration/handoff", self.handoff_form(package, selected)
+        )
+        assert response.status_code == 200, response.text
+        return RegistrationHandoff.model_validate_json(response.content).handoff
 
     def finish_form(
         self, package: RegistrationPackage, login: str
@@ -340,6 +374,7 @@ async def test_registration_auto_links_only_eligible_cards_in_its_selected_conto
     package = await auth_stand.package("  MATCHING@EXAMPLE.COM ")
     assert package.claims.email == email and package.claims.entry_contour == Contour.RU
 
+    handoff = await auth_stand.handoff_for(package, Contour.WORLD)
     auth_stand.switch(Contour.WORLD)
     logins = ("owner_lila", "owner_mar", "owner_june")
     for login in logins:
@@ -398,6 +433,7 @@ async def test_registration_auto_links_only_eligible_cards_in_its_selected_conto
 
     finish = auth_stand.finish_form(package, "matching_person")
     finish["consents"] = await auth_stand.consents()
+    finish["handoff"] = handoff
     response = await auth_stand.post("registration/finish", finish)
     assert response.status_code == 201
     result = FinishRegistrationResult.model_validate_json(response.content)
@@ -1034,6 +1070,7 @@ async def test_offline_cross_contour_registration_uses_selected_documents_and_on
     package = await auth_stand.package(email)
     world_proof = auth_stand.finish_form(package, "crosscontour")
     assert await auth_stand.counts() == (0, 0, 0, 0)
+    handoff = await auth_stand.handoff_for(package, Contour.RU)
 
     auth_stand.switch(Contour.RU)
     async with auth_stand.session() as session:
@@ -1052,6 +1089,12 @@ async def test_offline_cross_contour_registration_uses_selected_documents_and_on
         ErrorCode.REGISTRATION_PACKAGE_INVALID,
     )
     form = auth_stand.finish_form(package, "crosscontour")
+    assert_error(
+        await auth_stand.post("registration/finish", form),
+        400,
+        ErrorCode.REGISTRATION_PACKAGE_INVALID,
+    )
+    form["handoff"] = handoff
     assert_error(
         await auth_stand.post("registration/finish", form),
         400,

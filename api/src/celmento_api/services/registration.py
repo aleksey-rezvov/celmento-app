@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from celmento_api.contour import current_contour
 from celmento_api.errors import AppError
 from celmento_api.models.account import Account
-from celmento_api.models.enums import ErrorCode, RegistrationIntent
+from celmento_api.models.enums import Contour, ErrorCode, RegistrationIntent
 from celmento_api.schemas.auth import (
     AccountRegistration,
     FinishOutcome,
@@ -28,8 +28,15 @@ from celmento_api.services.legal import (
 from celmento_api.services.links import auto_link_for_account
 from celmento_api.services.logins import require_available_login
 from celmento_api.services.public_pages import invited_meeting, public_leader
+from celmento_api.services.registration_handoff import (
+    contour_conflict,
+    record_package_use,
+    recorded_contour,
+)
 from celmento_api.services.registration_package import (
     DeviceProofPurpose,
+    package_digest,
+    verify_handoff,
     verify_package,
 )
 from celmento_api.services.sessions import issue_session, issue_ticket
@@ -81,20 +88,33 @@ async def validate_registration(
     ), None
 
 
+async def _require_unused_package(
+    session: AsyncSession, digest: str, current: Contour, email: str
+) -> None:
+    selected = await recorded_contour(session, digest)
+    if selected is not None and selected != current:
+        raise contour_conflict(selected)
+    if await find_account(session, email) is not None:
+        raise AppError(409, ErrorCode.ACCOUNT_EXISTS)
+    if selected is not None:
+        raise contour_conflict(selected)
+
+
 async def finish_registration(
     session: AsyncSession,
     body: RegistrationFinish,
     origin: str,
 ) -> FinishRegistrationResult:
-    claims = verify_package(
-        body.registration_package.get_secret_value(),
-        body.device_proof,
-        DeviceProofPurpose.FINISH,
-    )
-    if await find_account(session, claims.email) is not None:
-        raise AppError(409, ErrorCode.ACCOUNT_EXISTS)
+    token = body.registration_package.get_secret_value()
+    claims = verify_package(token, body.device_proof, DeviceProofPurpose.FINISH)
+    digest = package_digest(token)
     current = current_contour()
     local_registration = current == claims.entry_contour
+    if not local_registration:
+        if body.handoff is None:
+            raise AppError(400, ErrorCode.REGISTRATION_PACKAGE_INVALID)
+        verify_handoff(body.handoff.get_secret_value(), claims, digest, current)
+    await _require_unused_package(session, digest, current, claims.email)
     consents = claims.consents if local_registration else (body.consents or [])
     await require_consents(
         session,
@@ -108,7 +128,16 @@ async def finish_registration(
         activation = await require_activation_consents(session, activation)
     elif activation is not None:
         raise AppError(400, ErrorCode.ACTIVATION_NOT_OFFERED)
-    login = await require_available_login(session, body.login)
+    try:
+        login = await require_available_login(session, body.login)
+    except AppError:
+        await _require_unused_package(session, digest, current, claims.email)
+        raise
+    # spec:impl registration-finish-screen#reject-reused-registration-package
+    previous = await record_package_use(session, digest, current, claims.expires_at)
+    if previous is not None:
+        await _require_unused_package(session, digest, current, claims.email)
+        raise contour_conflict(previous)
     # spec:impl registration-finish-screen#create-in-selected-contour
     account = await session.scalar(
         insert(Account)

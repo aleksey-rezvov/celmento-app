@@ -306,6 +306,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/auth/registration/handoff": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["authorizeRegistrationHandoff"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/auth/registration/login-availability": {
     parameters: {
       query?: never;
@@ -1756,6 +1772,14 @@ export interface components {
       registration_package: string;
       device_proof: components["schemas"]["RegistrationDeviceProof"];
     };
+    RegistrationHandoffRequest: {
+      registration_package: string;
+      device_proof: components["schemas"]["RegistrationDeviceProof"];
+      selected_contour: components["schemas"]["Contour"];
+    };
+    RegistrationHandoff: {
+      handoff: string;
+    };
     RegistrationLoginCheck: {
       registration_package: string;
       login: string;
@@ -1770,6 +1794,7 @@ export interface components {
       activation?: components["schemas"]["AccountActivation"];
       notify_specialist: boolean;
       device_proof: components["schemas"]["RegistrationDeviceProof"];
+      handoff?: string;
     };
     AccountActivation: {
       age_confirmed: true;
@@ -2903,6 +2928,33 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["FinishRegistrationResult"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["ValidationError"];
+      500: components["responses"]["InternalError"];
+    };
+  };
+  authorizeRegistrationHandoff: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["RegistrationHandoffRequest"];
+      };
+    };
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RegistrationHandoff"];
         };
       };
       400: components["responses"]["BadRequest"];

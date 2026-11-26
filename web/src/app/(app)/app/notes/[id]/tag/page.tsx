@@ -6,13 +6,14 @@ import { ClientAvatar } from "@/components/clients/ClientAvatar";
 import { NoteResource, NoteUnavailable } from "@/components/notes/editor/NoteResource";
 import { NoteRouteHeader } from "@/components/notes/editor/NoteRouteHeader";
 import { TagConfirmSheet } from "@/components/notes/editor/TagConfirmSheet";
-import { useNoteOnline } from "@/components/notes/editor/useNoteAutosave";
+import { EmptyState } from "@/components/shell/EmptyState";
 import { useAccount } from "@/lib/account";
 import { apiClient, errorCode, type Schemas } from "@/lib/api/client";
 import { useLanguage, useTranslation } from "@/lib/i18n";
 import { noteContext } from "@/lib/note-route";
 import { noteHref } from "@/lib/notes-navigation";
 import { getSessionToken } from "@/lib/session";
+import { useOnline } from "@/lib/online";
 
 type Person = Schemas["NoteTaggablePerson"];
 type Note = Schemas["Note"];
@@ -21,7 +22,7 @@ function TagPeople({ note, back }: { note: Note; back: string }): ReactElement {
   const t = useTranslation();
   const language = useLanguage();
   const router = useRouter();
-  const online = useNoteOnline();
+  const online = useOnline();
   const [people, setPeople] = useState<Person[] | null>(null);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Person | null>(null);
@@ -72,7 +73,10 @@ function TagPeople({ note, back }: { note: Note; back: string }): ReactElement {
         return;
       }
       if (errorCode(error) === "conflict") {
-        const updated = await api.GET("/notes/{note_id}", { params: { path }, cache: "no-store" });
+        const updated = await api.GET("/notes/{note_id}", {
+          params: { path },
+          cache: "no-store",
+        });
         if (getSessionToken() !== token) return;
         if (
           updated.data?.tags.some(
@@ -161,6 +165,8 @@ function TagPeople({ note, back }: { note: Note; back: string }): ReactElement {
             </li>
           ))}
         </ul>
+      ) : query.trim() ? (
+        <EmptyState character="clients_not_found" textKey="clients.not_found" />
       ) : (
         <p>{t("clients.not_found")}</p>
       )}

@@ -609,16 +609,20 @@ test.each(["new", "edit"] as const)(
     const requests = setup();
     render(view(mode === "new" ? <NewMeetingPage /> : <EditMeetingPage />));
     await screen.findByRole("textbox", { name: t("form.comment") });
-    vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
     change(t("form.comment"), "Keep this offline edit");
+    await act(async () => {
+      vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+      window.dispatchEvent(new Event("offline"));
+    });
     fireEvent.click(button("form.save"));
-    expect((await screen.findByRole("alert")).textContent).toBe(t("extra.auth_network_error"));
+    expect((await screen.findByRole("alert")).textContent).toBe(t("extra.meeting_offline"));
     expect(screen.getByRole("textbox", { name: t("form.comment") })).toHaveProperty(
       "value",
       "Keep this offline edit",
     );
     expect(calls(requests, "POST", "/meetings")).toHaveLength(0);
     expect(calls(requests, "PATCH", "/meetings/meeting-one")).toHaveLength(0);
+    expect(calls(requests, "PUT", "/meetings/meeting-one/outcome")).toHaveLength(0);
   },
 );
 
@@ -1360,6 +1364,7 @@ test.each(["RUB", "EUR"] as const)(
 );
 
 // spec:test meeting-outcome-recording#open-screen-4-3-after-missed
+// spec:test character-illustrations#show-character-exactly-screens-states
 test.each(["client_session", "personal_therapy", "supervision", "training"] as const)(
   "asks an unselected charge question before recording a missed %s",
   async (type) => {
@@ -1379,9 +1384,12 @@ test.each(["client_session", "personal_therapy", "supervision", "training"] as c
       },
       { meeting: original },
     );
-    render(view(<OutcomePage />));
+    const { container } = render(view(<OutcomePage />));
     const question = t(isClient ? "outcome.charge_q" : "outcome.expense_q");
     const choices = within(await screen.findByRole("group", { name: question }));
+    expect(container.querySelector("picture img")?.getAttribute("src")).toBe(
+      "/characters/celmento-master-red@200px.png",
+    );
     if (isClient) expect(screen.getByText(t("outcome.charge_hint"))).toBeTruthy();
     const yes = choices.getByRole("button", { name: t("outcome.yes") });
     const no = choices.getByRole("button", { name: t("outcome.no") });
@@ -1391,6 +1399,7 @@ test.each(["client_session", "personal_therapy", "supervision", "training"] as c
     fireEvent.click(no);
     fireEvent.click(button("form.save"));
     expect(await screen.findByText(t("card.hours_not_counted"))).toBeTruthy();
+    expect(container.querySelector("picture img")).toBeNull();
     expect(await calls(requests, "PUT", "/meetings/meeting-one/outcome")[0]?.json()).toEqual({
       status: "not_taken_place",
       charged: false,

@@ -13,7 +13,7 @@ import { RegionField } from "@/components/auth/RegionField";
 import { DocumentOverlay } from "@/components/DocumentOverlay";
 import { LoginField } from "@/components/LoginField";
 import { apiClient, errorCode, type Schemas } from "@/lib/api/client";
-import { invalidRegistrationPackage, loginRule } from "@/lib/auth";
+import { invalidRegistrationPackage, loginRule, reservedRegistrationContour } from "@/lib/auth";
 import { contourDomain, contourWebOrigin, type Contour } from "@/lib/contour";
 import { deviceTimeZone } from "@/lib/device";
 import { useLanguage, useTranslation, type MessageKey } from "@/lib/i18n";
@@ -25,7 +25,14 @@ import {
   signupKinds,
   useLegalDocuments,
 } from "@/lib/legal-documents";
-import { clearRegistration, loadPackage, saveEmail } from "@/lib/registration";
+import {
+  clearRegistration,
+  loadPackage,
+  loadRegistrationDestination,
+  saveEmail,
+  saveRegistrationDestination,
+  type RegistrationDestination,
+} from "@/lib/registration";
 import {
   clearRegistrationDeviceKey,
   loadRegistrationDeviceKey,
@@ -55,7 +62,8 @@ function FinishForm({ registration, deviceKey, restart }: FinishFormProps): Reac
   const language = useLanguage();
   const claims = registration.claims;
 
-  const [contour, setContour] = useState(claims.entry_contour);
+  const [destination, setDestination] = useState(() => loadRegistrationDestination(registration));
+  const [contour, setContour] = useState(destination?.contour ?? claims.entry_contour);
   const [login, setLogin] = useState("");
   const [verdict, setVerdict] = useState<LoginCheck | null>(null);
   const [editing, setEditing] = useState(false);
@@ -190,9 +198,30 @@ function FinishForm({ registration, deviceKey, restart }: FinishFormProps): Reac
     setError(null);
   }
 
+  function keepDestination(choice: RegistrationDestination): boolean {
+    if (!saveRegistrationDestination(registration, choice)) return false;
+    setDestination(choice);
+    return true;
+  }
+
+  function handlePackageError(failure: unknown): boolean {
+    if (invalidRegistrationPackage(failure)) {
+      restart();
+      return true;
+    }
+    const selected = reservedRegistrationContour(failure);
+    if (selected !== null && selected !== contour) {
+      selectContour(selected);
+      keepDestination({ contour: selected });
+      setError("extra.auth_request_failed");
+      return true;
+    }
+    return false;
+  }
+
   async function finish(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
-    if (!canSubmit) {
+    if (!canSubmit || loadPackage()?.token !== registration.token) {
       return;
     }
 
@@ -217,6 +246,39 @@ function FinishForm({ registration, deviceKey, restart }: FinishFormProps): Reac
       };
 
       if (newContour) {
+        const saved = loadRegistrationDestination(registration);
+        if (saved && saved.contour !== contour) {
+          selectContour(saved.contour);
+          setDestination(saved);
+          return;
+        }
+        if (!keepDestination(saved ?? { contour })) return;
+
+        let handoff = saved?.handoff;
+        if (!handoff) {
+          const result = await apiClient(null, claims.entry_contour).POST(
+            "/auth/registration/handoff",
+            {
+              body: {
+                registration_package: registration.token,
+                device_proof: await signRegistration(
+                  deviceKey,
+                  { selectedContour: contour },
+                  claims.entry_contour,
+                  registration.token,
+                ),
+                selected_contour: contour,
+              },
+            },
+          );
+          handoff = result.data?.handoff;
+          if (!handoff) {
+            if (!handlePackageError(result.error)) setError("extra.auth_request_failed");
+            return;
+          }
+          if (!keepDestination({ contour, handoff })) return;
+        }
+        body.handoff = handoff;
         body.consents = consents;
       }
       if (offerActivation) {
@@ -228,6 +290,8 @@ function FinishForm({ registration, deviceKey, restart }: FinishFormProps): Reac
         "/auth/registration/finish",
         { body },
       );
+
+      if (loadPackage()?.token !== registration.token) return;
 
       if (data?.outcome === "session" && data.session) {
         clearRegistration();
@@ -244,14 +308,22 @@ function FinishForm({ registration, deviceKey, restart }: FinishFormProps): Reac
           clearRegistration();
           await clearRegistrationDeviceKey(claims.device_public_key);
           // spec:impl registration-finish-screen#move-person-selected-contour-domain
+          // spec:impl region-contours#sign-in-on-selected-domain
           window.location.assign(destination.href);
           return;
         }
       }
 
       const code = errorCode(failure);
-      if (invalidRegistrationPackage(failure) || code === "account_exists") {
-        restart();
+      if (handlePackageError(failure)) return;
+      if (code === "account_exists") {
+        if (newContour) {
+          clearRegistration();
+          await clearRegistrationDeviceKey(claims.device_public_key);
+          window.location.assign(new URL("/login", contourWebOrigin(contour)).href);
+        } else {
+          restart();
+        }
         return;
       }
 
@@ -296,7 +368,7 @@ function FinishForm({ registration, deviceKey, restart }: FinishFormProps): Reac
         <RegionField
           value={contour}
           locked={claims.origin !== null}
-          disabled={submitting}
+          disabled={submitting || destination !== null}
           onChange={selectContour}
         />
         <LoginField

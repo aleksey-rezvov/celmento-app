@@ -1,49 +1,110 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactElement,
+} from "react";
+import { OfflineHint } from "@/components/OfflineHint";
 import { useAppNavigation } from "@/components/shell/navigation";
+import { useAccount } from "@/lib/account";
 import { apiClient, errorCode, type Schemas } from "@/lib/api/client";
 import { useLanguage, useTranslation, type MessageKey } from "@/lib/i18n";
 import { noteHref, notesPath } from "@/lib/notes-navigation";
 import { limitNoteText, noteTitle, singleNoteLine } from "@/lib/note-text";
-import { getSessionToken } from "@/lib/session";
+import { offlineCache } from "@/lib/offline-cache";
+import { useOnline } from "@/lib/online";
 import { ChecklistText } from "./ChecklistText";
 import { NoteAccountAvatar, NoteMenu, shareNoteText } from "./NoteActions";
 import { NoteFrame } from "./NoteFrame";
-import { useNoteOnline } from "./useNoteAutosave";
+import { compareNoteVersions } from "./useNoteAutosave";
 
 type Note = Schemas["Note"];
 
 interface ReceivedNoteProps {
   initial: Note;
   back: string;
+  readOnly?: boolean;
 }
 
-export function ReceivedNote({ initial, back }: ReceivedNoteProps): ReactElement {
+interface ReceivedSnapshot {
+  source: Note;
+  note: Note | null;
+  keepTicksOnReauthorization: boolean;
+}
+
+export function ReceivedNote({ initial, back, readOnly }: ReceivedNoteProps): ReactElement {
   const t = useTranslation();
   const language = useLanguage();
   const navigate = useAppNavigation();
   const router = useRouter();
-  const online = useNoteOnline();
-  const [note, setNote] = useState<Note | null>(initial);
+  const { currentSessionToken } = useAccount();
+  const online = useOnline() && !readOnly;
+  const [snapshot, setSnapshot] = useState<ReceivedSnapshot>({
+    source: initial,
+    note: initial,
+    keepTicksOnReauthorization: false,
+  });
   const [menu, setMenu] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<MessageKey | null>(null);
   const changing = useRef(false);
+  const writingAllowed = useRef(false);
   const pendingRead = useRef<AbortController | null>(null);
   const replyAttempt = useRef<{ text: string; key: string } | null>(null);
   const id = initial.id;
+  const note = snapshot.note;
+
+  if (snapshot.source !== initial) {
+    let next = note === null ? null : initial;
+    if (note) {
+      const order = compareNoteVersions(initial, note);
+      if (order < 0) next = note;
+      else if (order === 0 && snapshot.keepTicksOnReauthorization) {
+        // Checklist receipts can advance without a change to the author's version.
+        next = { ...initial, checked_items: note.checked_items };
+      }
+    }
+    setSnapshot({ source: initial, note: next, keepTicksOnReauthorization: false });
+  }
+
+  useLayoutEffect(() => {
+    writingAllowed.current = online;
+  }, [online]);
+
+  const publish = useCallback((next: Note, keepTicksOnReauthorization = false): void => {
+    setSnapshot((previous) =>
+      previous.note && compareNoteVersions(next, previous.note) >= 0
+        ? { ...previous, note: next, keepTicksOnReauthorization }
+        : previous,
+    );
+  }, []);
+
+  useEffect(() => {
+    if (!note) return;
+    let active = true;
+    void offlineCache(currentSessionToken).then((cache) => {
+      if (active) cache?.saveNote(note);
+    });
+    return () => {
+      active = false;
+    };
+  }, [currentSessionToken, note, snapshot.source]);
 
   const revoke = useCallback((): void => {
     // spec:impl note-sharing-tags#close-note-recipient-side-access-removed
-    setNote(null);
+    setSnapshot((previous) => ({ ...previous, note: null }));
+    void offlineCache(currentSessionToken).then((cache) => cache?.removeNote(id));
     router.replace(notesPath + "?access_removed=1");
-  }, [router]);
+  }, [currentSessionToken, id, router]);
 
   const refresh = useCallback(async (): Promise<void> => {
-    const token = getSessionToken();
-    if (!token || !navigator.onLine || pendingRead.current) return;
+    const token = currentSessionToken();
+    if (!token || !online || navigator.onLine === false || pendingRead.current) return;
     const controller = new AbortController();
     pendingRead.current = controller;
     try {
@@ -53,15 +114,15 @@ export function ReceivedNote({ initial, back }: ReceivedNoteProps): ReactElement
         signal: controller.signal,
         cache: "no-store",
       });
-      if (controller.signal.aborted || getSessionToken() !== token) return;
-      if (response.status === 404) revoke();
-      else if (data) setNote(data);
+      if (controller.signal.aborted || currentSessionToken() !== token) return;
+      if ([401, 403, 404].includes(response.status)) revoke();
+      else if (data) publish(data);
     } catch {
       // Keep the visible note while the connection recovers.
     } finally {
       if (pendingRead.current === controller) pendingRead.current = null;
     }
-  }, [id, revoke]);
+  }, [currentSessionToken, id, online, publish, revoke]);
 
   useEffect(() => {
     if (!note) return;
@@ -83,10 +144,17 @@ export function ReceivedNote({ initial, back }: ReceivedNoteProps): ReactElement
   }, [note, refresh]);
 
   async function mutate(
-    body: (api: ReturnType<typeof apiClient>, current: Note) => Promise<void>,
+    body: (api: ReturnType<typeof apiClient>, current: Note, token: string) => Promise<void>,
   ): Promise<void> {
-    const token = getSessionToken();
-    if (!note || !token || changing.current || !navigator.onLine) return;
+    const token = currentSessionToken();
+    if (
+      !note ||
+      !token ||
+      changing.current ||
+      !writingAllowed.current ||
+      navigator.onLine === false
+    )
+      return;
     changing.current = true;
     pendingRead.current?.abort();
     pendingRead.current = null;
@@ -94,9 +162,9 @@ export function ReceivedNote({ initial, back }: ReceivedNoteProps): ReactElement
     setError(null);
     setMenu(false);
     try {
-      await body(apiClient(token), note);
+      await body(apiClient(token), note, token);
     } catch {
-      if (getSessionToken() === token) setError("extra.auth_network_error");
+      if (currentSessionToken() === token) setError("extra.auth_network_error");
     } finally {
       changing.current = false;
       setBusy(false);
@@ -104,11 +172,10 @@ export function ReceivedNote({ initial, back }: ReceivedNoteProps): ReactElement
   }
 
   function toggle(position: number): void {
-    void mutate(async (api, current) => {
+    void mutate(async (api, current, token) => {
       const ticks = new Set(current.checked_items);
       if (ticks.has(position)) ticks.delete(position);
       else ticks.add(position);
-      const token = getSessionToken();
       // spec:impl note-sharing-tags#let-tagged-person-leader-non-leader
       const { data, response } = await api.PUT("/notes/{note_id}/checklist-ticks", {
         params: { path: { note_id: current.id } },
@@ -118,9 +185,10 @@ export function ReceivedNote({ initial, back }: ReceivedNoteProps): ReactElement
           expected_checked_items: current.checked_items,
         },
       });
-      if (getSessionToken() !== token) return;
-      if (data) setNote(data);
-      else if (response.status === 404) revoke();
+      if (currentSessionToken() !== token) return;
+      if (data) {
+        publish(data, !writingAllowed.current || navigator.onLine === false);
+      } else if ([401, 403, 404].includes(response.status)) revoke();
       else if (response.status === 409) {
         setError("extra.note_checklist_changed");
         await refresh();
@@ -129,8 +197,7 @@ export function ReceivedNote({ initial, back }: ReceivedNoteProps): ReactElement
   }
 
   function reply(): void {
-    void mutate(async (api, current) => {
-      const token = getSessionToken();
+    void mutate(async (api, current, token) => {
       const attempt = replyAttempt.current ?? {
         text: t("note.reply_first_line", {
           [language === "ru" ? "заголовок" : "title"]: limitNoteText(
@@ -143,13 +210,18 @@ export function ReceivedNote({ initial, back }: ReceivedNoteProps): ReactElement
       replyAttempt.current = attempt;
       // spec:impl note-sharing-tags#create-reply-new-note-owned
       const { data, error, response } = await api.POST("/notes/{note_id}/replies", {
-        params: { path: { note_id: current.id }, header: { "Idempotency-Key": attempt.key } },
+        params: {
+          path: { note_id: current.id },
+          header: { "Idempotency-Key": attempt.key },
+        },
         body: { text: attempt.text },
       });
-      if (getSessionToken() !== token) return;
+      if (currentSessionToken() !== token) return;
       if (response.status < 500) replyAttempt.current = null;
-      if (data) router.push(noteHref(data.id));
-      else if (response.status === 404) revoke();
+      if (data) {
+        void offlineCache(currentSessionToken).then((cache) => cache?.saveNote(data));
+        router.push(noteHref(data.id));
+      } else if ([401, 403, 404].includes(response.status)) revoke();
       else
         setError(
           errorCode(error) === "tag_not_allowed"
@@ -177,11 +249,7 @@ export function ReceivedNote({ initial, back }: ReceivedNoteProps): ReactElement
         onClose={() => navigate(back)}
         notice={
           <>
-            {!online && (
-              <p className="note-notice" role="status">
-                {t("extra.note_offline")}
-              </p>
-            )}
+            {!online && <OfflineHint className="note-notice" message="extra.note_offline" />}
             {error && (
               <p className="note-notice" role="alert">
                 {t(error)}

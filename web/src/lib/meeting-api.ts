@@ -4,8 +4,9 @@ import { getSessionToken } from "./session";
 export async function putMeetingOutcome(
   id: string,
   body: Schemas["MeetingOutcomeInput"],
+  token: string | null = getSessionToken(),
 ): Promise<Schemas["MeetingDetail"] | null> {
-  const { data } = await apiClient(getSessionToken()).PUT("/meetings/{meeting_id}/outcome", {
+  const { data } = await apiClient(token).PUT("/meetings/{meeting_id}/outcome", {
     params: { path: { meeting_id: id } },
     body,
   });

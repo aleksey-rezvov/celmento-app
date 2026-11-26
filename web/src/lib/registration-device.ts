@@ -2,7 +2,7 @@ import type { Contour } from "./contour";
 
 const databaseName = "celmento-registration";
 const storeName = "device-keys";
-type Purpose = "login-proposal" | "login-availability" | "finish";
+type Purpose = "login-proposal" | "login-availability" | "finish" | { selectedContour: Contour };
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -66,9 +66,10 @@ export async function signRegistration(
   contour: Contour,
   token: string,
 ): Promise<string> {
-  const payload = new TextEncoder().encode(
-    `celmento:registration\n${purpose}\n${contour}\n${token}`,
-  );
+  const action = typeof purpose === "string" ? purpose : "handoff";
+  const lines = ["celmento:registration", action, contour, token];
+  if (typeof purpose !== "string") lines.push(purpose.selectedContour);
+  const payload = new TextEncoder().encode(lines.join("\n"));
   return base64Url(
     await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, privateKey, payload),
   );

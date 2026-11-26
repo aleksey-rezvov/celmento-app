@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactElement } from "react";
 import { ClientAvatar } from "@/components/clients/ClientAvatar";
+import { EmptyState } from "@/components/shell/EmptyState";
 import { Sheet } from "@/components/shell/Sheet";
 import { apiClient, type Schemas } from "@/lib/api/client";
 import { useLanguage, useTranslation } from "@/lib/i18n";
@@ -109,7 +110,15 @@ export function ClientPicker({ onClose, onPick, onNewClient }: ClientPickerProps
           </>
         )}
         {items === null && !error && <div aria-busy="true" />}
-        {items !== null && !rows.length && <p className="meeting-hint">{t("clients.not_found")}</p>}
+        {items !== null &&
+          !rows.length &&
+          (query.trim() ? (
+            <div className="character-panel">
+              <EmptyState character="clients_not_found" textKey="clients.not_found" />
+            </div>
+          ) : (
+            <p className="meeting-hint">{t("clients.not_found")}</p>
+          ))}
         <ul>
           {rows.map((item) => (
             <li key={item.id}>

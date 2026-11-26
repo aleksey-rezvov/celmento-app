@@ -13,6 +13,8 @@ from celmento_api.schemas.auth import (
     FinishRegistrationResult,
     LoginAvailability,
     RegistrationFinish,
+    RegistrationHandoff,
+    RegistrationHandoffRequest,
     RegistrationLoginCheck,
     RegistrationPackageRef,
     SignInCodeRequest,
@@ -28,6 +30,7 @@ from celmento_api.services.registration import (
     finish_registration,
     validate_registration,
 )
+from celmento_api.services.registration_handoff import authorize_handoff
 from celmento_api.services.registration_package import (
     DeviceProofPurpose,
     issue_package,
@@ -170,6 +173,21 @@ async def check_login(
     return LoginAvailability(
         login=body.login.lower(), status=await login_status(session, body.login)
     )
+
+
+@router.post(
+    "/registration/handoff",
+    operation_id="authorizeRegistrationHandoff",
+    summary="Bind a confirmed registration package to another contour",
+    response_model=RegistrationHandoff,
+    responses=error_responses(400, 409, 422, 500),
+)
+async def handoff(
+    body: RegistrationHandoffRequest, session: Database
+) -> RegistrationHandoff:
+    result = await authorize_handoff(session, body)
+    await session.commit()
+    return result
 
 
 @router.post(

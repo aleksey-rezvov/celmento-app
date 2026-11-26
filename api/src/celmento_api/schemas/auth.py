@@ -155,6 +155,14 @@ class RegistrationPackageRef(BaseModel):
     device_proof: DeviceProof
 
 
+class RegistrationHandoffRequest(RegistrationPackageRef, extra="forbid"):
+    selected_contour: Contour
+
+
+class RegistrationHandoff(BaseModel):
+    handoff: Token
+
+
 class RegistrationLoginCheck(RegistrationPackageRef):
     login: str
 
@@ -180,6 +188,11 @@ class RegistrationFinish(RegistrationPackageRef):
     consents: list[ConsentAcceptance] | None = None
     activation: AccountActivation | None = None
     notify_specialist: bool = False
+    handoff: SecretStr | None = Field(
+        default=None,
+        repr=False,
+        json_schema_extra={"x-sensitive": True, "writeOnly": True},
+    )
 
 
 class SignInTicket(BaseModel):

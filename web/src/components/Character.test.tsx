@@ -52,3 +52,13 @@ test("keeps each character square and uncropped at the requested size", () => {
     expect(image.style.objectFit).toBe("contain");
   }
 });
+
+// spec:test character-illustrations#serve-svg-name-instead-raster
+test("offers SVG for a large character and uses raster at 200 pixels", () => {
+  const { container, rerender } = render(<Character state="code" size={208} />);
+  const source = (): Element | null => container.querySelector('source[type="image/svg+xml"]');
+
+  expect(source()?.getAttribute("srcset")).toBe("/characters/celmento-master-blue.svg");
+  rerender(<Character state="code" size={200} />);
+  expect(source()).toBeNull();
+});

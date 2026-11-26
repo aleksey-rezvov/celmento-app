@@ -1,4 +1,4 @@
--- Alembic revision: 0008
+-- Alembic revision: 0009
 --
 -- PostgreSQL database dump
 --
@@ -482,6 +482,20 @@ CREATE TABLE public.preseeded_note_set (
 
 
 --
+-- Name: registration_package_use; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.registration_package_use (
+    registration_package_use_id uuid DEFAULT uuidv7() NOT NULL,
+    package_digest text NOT NULL,
+    selected_contour text NOT NULL,
+    expires_at timestamp with time zone NOT NULL,
+    CONSTRAINT registration_package_use_contour_known CHECK ((selected_contour = ANY (ARRAY['ru'::text, 'world'::text]))),
+    CONSTRAINT registration_package_use_digest_valid CHECK ((package_digest ~ '^[0-9a-f]{64}$'::text))
+);
+
+
+--
 -- Name: reserved_login_word; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -855,6 +869,22 @@ ALTER TABLE ONLY public.preseeded_note_set
 
 
 --
+-- Name: registration_package_use registration_package_use_package_digest_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.registration_package_use
+    ADD CONSTRAINT registration_package_use_package_digest_key UNIQUE (package_digest);
+
+
+--
+-- Name: registration_package_use registration_package_use_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.registration_package_use
+    ADD CONSTRAINT registration_package_use_pkey PRIMARY KEY (registration_package_use_id);
+
+
+--
 -- Name: reserved_login_word reserved_login_word_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1136,6 +1166,13 @@ CREATE INDEX ix_note_tag_client_card_id ON public.note_tag USING btree (client_c
 --
 
 CREATE INDEX ix_notice_account_id ON public.notice USING btree (account_id);
+
+
+--
+-- Name: ix_registration_package_use_expires_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_registration_package_use_expires_at ON public.registration_package_use USING btree (expires_at);
 
 
 --

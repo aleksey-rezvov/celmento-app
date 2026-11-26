@@ -1,3 +1,4 @@
+import { webcrypto } from "node:crypto";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ComponentPropsWithoutRef, ReactElement } from "react";
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from "vitest";
@@ -272,6 +273,65 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
+});
+
+// spec:test schedule-day-view#keep-showing-last-loaded-meetings
+test("restores the last feed and day across a cold offline launch, honoring newer covered dates", async () => {
+  vi.stubGlobal("crypto", webcrypto);
+  const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(true);
+  const earlier = meeting(trainingId, "2026-11-09T15:00:00Z", { with_whom: "Offline earlier" });
+  const previous = meeting(sessionId, "2026-11-15T22:35:00Z", { with_whom: "Old appointment" });
+  const latest = meeting(mutualId, "2026-11-15T22:45:00Z", { with_whom: "Latest appointment" });
+  let denied = false;
+  const requests = signedApi((_request, url) => {
+    if (denied) return json({ code: "forbidden" }, 403);
+    const from = url.searchParams.get("from");
+    return schedule(from === url.searchParams.get("to") ? [latest] : [earlier, previous]);
+  });
+  saveView("schedule");
+  const showDay = (): void => {
+    fireEvent.click(
+      within(screen.getByRole("group", { name: t("meetings.title") })).getByRole("button", {
+        name: t("meetings.view_day"),
+      }),
+    );
+  };
+  const warm = render(at("/app/meetings", <Meetings />));
+  await screen.findByRole("button", { name: /Old appointment/u });
+  showDay();
+  await screen.findByRole("button", { name: /Latest appointment/u });
+  expect(scheduleRanges(requests).at(-1)).toEqual(oneDay(today));
+  expect(screen.queryByRole("button", { name: /Old appointment/u })).toBeNull();
+  warm.unmount();
+  const onlineRequests = requests.length;
+
+  online.mockReturnValue(false);
+  saveView("schedule");
+  const cold = render(at("/app/meetings", <Meetings />));
+  const feed = await screen.findByRole("region", { name: t("meetings.view_schedule") });
+  await within(feed).findByRole("button", { name: /Offline earlier/u });
+  const current = within(feed).getByRole("button", { name: /Latest appointment/u });
+  expect(current.closest<HTMLElement>("[data-feed-day]")?.dataset.feedDay).toBe(today);
+  expect(within(feed).queryByRole("button", { name: /Old appointment/u })).toBeNull();
+  expect(requests).toHaveLength(onlineRequests);
+
+  showDay();
+  await screen.findByRole("button", { name: /Latest appointment/u });
+  expect(screen.queryByRole("button", { name: /Offline earlier/u })).toBeNull();
+  expect(requests).toHaveLength(onlineRequests);
+
+  await act(async () => {
+    denied = true;
+    online.mockReturnValue(true);
+    window.dispatchEvent(new Event("online"));
+  });
+  await screen.findByText(t("extra.auth_request_failed"));
+  expect(screen.queryByRole("button", { name: /Latest appointment/u })).toBeNull();
+  cold.unmount();
+  online.mockReturnValue(false);
+  render(at("/app/meetings", <Meetings />));
+  await screen.findByText(t("extra.meeting_offline"));
+  expect(screen.queryByRole("button", { name: /Latest appointment/u })).toBeNull();
 });
 
 test("converts local wall times across midnight and resolves DST gaps and repeated hours", () => {

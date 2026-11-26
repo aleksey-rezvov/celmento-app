@@ -98,7 +98,7 @@ export function OutcomeForm({
       : t(completed ? "outcome.saved_hours" : "extra.meeting_outcome_saved");
     return (
       <main className="meeting-screen meeting-success">
-        <Character state={completed ? "outcome_saved" : "outcome_not_taken_place"} size={160} />
+        {completed && <Character state="outcome_saved" size={160} />}
         <section className="meeting-panel">
           <h1>{message}</h1>
           {/* spec:impl meeting-outcome-recording#append-saved-debt-number-unpaid-sessions */}
@@ -128,6 +128,10 @@ export function OutcomeForm({
   // spec:impl mutual-practice-meeting#ask-title-with-whom-text-type-mutual
   return (
     <MeetingScreen title={title} back={back}>
+      {/* spec:impl character-illustrations#show-character-exactly-screens-states */}
+      {draft?.status === "not_taken_place" && (
+        <Character state="outcome_not_taken_place" size={160} />
+      )}
       <form className="meeting-panel" onSubmit={submit}>
         <fieldset className="meeting-form-fields" disabled={busy}>
           {!draft && (

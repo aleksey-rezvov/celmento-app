@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState, type ReactElement, type ReactNode } from "react";
+import { OfflineHint } from "@/components/OfflineHint";
 import { ScreenHeader } from "@/components/shell/ScreenHeader";
 import { useAppNavigation } from "@/components/shell/navigation";
 import { useAccount } from "@/lib/account";
 import { apiClient, type Schemas } from "@/lib/api/client";
 import { useTranslation } from "@/lib/i18n";
-import { getSessionToken } from "@/lib/session";
+import { useOnline } from "@/lib/online";
 import "./meeting.css";
 
 export const meetingsPath = "/app/meetings";
@@ -61,16 +62,19 @@ interface MeetingResourceProps {
 
 export function MeetingResource({ id, children }: MeetingResourceProps): ReactElement {
   const t = useTranslation();
-  const { account } = useAccount();
+  const { account, currentSessionToken } = useAccount();
+  const online = useOnline();
   const [result, setResult] = useState<Result | null>(null);
   const [attempt, setAttempt] = useState(0);
   const key = [account.id, id, attempt].join(":");
   const active = account.activated;
   const visible = result?.key === key ? result : null;
+  const ready = Boolean(visible?.meeting);
   useEffect(() => {
-    if (!active) return;
+    if (!active || !online || ready) return;
     const controller = new AbortController();
-    const token = getSessionToken();
+    const token = currentSessionToken();
+    if (!token) return;
 
     async function load(): Promise<void> {
       try {
@@ -79,18 +83,22 @@ export function MeetingResource({ id, children }: MeetingResourceProps): ReactEl
           signal: controller.signal,
           cache: "no-store",
         });
-        if (!controller.signal.aborted && getSessionToken() === token) {
-          setResult({ key, meeting: data ?? null, notFound: response.status === 404 });
+        if (!controller.signal.aborted && currentSessionToken() === token) {
+          setResult({
+            key,
+            meeting: data ?? null,
+            notFound: response.status === 404,
+          });
         }
       } catch {
-        if (!controller.signal.aborted && getSessionToken() === token)
+        if (!controller.signal.aborted && currentSessionToken() === token)
           setResult({ key, meeting: null, notFound: false });
       }
     }
 
     void load();
     return () => controller.abort();
-  }, [active, key, id]);
+  }, [active, currentSessionToken, id, key, online, ready]);
 
   if (active && visible?.meeting) {
     return children(visible.meeting, (meeting) =>
@@ -102,6 +110,8 @@ export function MeetingResource({ id, children }: MeetingResourceProps): ReactEl
     <MeetingScreen title={t("meetings.title")}>
       {!active || visible?.notFound ? (
         <p role="alert">{t("extra.meeting_missing")}</p>
+      ) : !online ? (
+        <OfflineHint message="extra.meeting_offline" />
       ) : visible ? (
         <>
           <p role="alert">{t("extra.auth_request_failed")}</p>

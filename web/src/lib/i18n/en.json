@@ -207,6 +207,7 @@
   "extra.meeting_details_saved_outcome_pending": "Session details were saved. Save the outcome again.",
   "extra.meeting_invalid_time": "This time does not exist in your time zone",
   "extra.meeting_missing": "Session not found",
+  "extra.meeting_offline": "No connection",
   "extra.meeting_outcome_saved": "Outcome saved",
   "extra.meeting_place": "Location",
   "extra.note_actions": "Note actions",

@@ -11,6 +11,7 @@ import {
   loadCode,
   loadIntent,
   loadPackage,
+  loadRegistrationDestination,
   loadSignupEmail,
   saveEmail,
   saveIntent,
@@ -113,6 +114,7 @@ async function expectDeviceProof(
   purpose: string,
   contour: Schemas["Contour"],
   registration: Schemas["RegistrationPackage"],
+  selectedContour?: Schemas["Contour"],
 ): Promise<void> {
   expect(request).toBeDefined();
   const body = await request?.json();
@@ -127,13 +129,14 @@ async function expectDeviceProof(
     false,
     ["verify"],
   );
-  const message = `celmento:registration\n${purpose}\n${contour}\n${registration.token}`;
+  const lines = ["celmento:registration", purpose, contour, registration.token];
+  if (selectedContour) lines.push(selectedContour);
   expect(
     await webcrypto.subtle.verify(
       { name: "ECDSA", hash: "SHA-256" },
       publicKey,
       Buffer.from(body.device_proof, "base64url"),
-      Buffer.from(message),
+      Buffer.from(lines.join("\n")),
     ),
   ).toBe(true);
 }
@@ -921,6 +924,7 @@ test("checks the typed login against the selected region and waits for its own v
 
 // spec:test region-contours#show-region-field-hint-selected
 // spec:test region-contours#create-account-directly-selected-contour
+// spec:test region-contours#sign-in-on-selected-domain
 // spec:test registration-finish-screen#show-terms-privacy-unchecked-linked
 // spec:test registration-finish-screen#move-person-selected-contour-domain
 test("uses the selected contour's documents and creation endpoint and follows the returned recognized ticket", async () => {
@@ -932,6 +936,7 @@ test("uses the selected contour's documents and creation endpoint and follows th
     if (request.method === "GET") {
       return legalDocument(request);
     }
+    if (path.endsWith("/handoff")) return json({ handoff: "test-handoff" });
     if (path.endsWith("/finish")) {
       return json(
         {
@@ -961,6 +966,7 @@ test("uses the selected contour's documents and creation endpoint and follows th
   expect(terms).toHaveProperty("checked", false);
   expect(privacy).toHaveProperty("checked", false);
   expect(submit).toHaveProperty("disabled", true);
+  expect(requests.some((entry) => new URL(entry.url).pathname.endsWith("/handoff"))).toBe(false);
   fireEvent.click(screen.getByRole("button", { name: t("profile.terms") }));
   expect(await screen.findByText("ru-v1")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: t("extra.auth_close_document") }));
@@ -970,6 +976,10 @@ test("uses the selected contour's documents and creation endpoint and follows th
   fireEvent.click(submit);
 
   await waitFor(() => expect(window.location.hash).toBe("#ticket=test-ticket"));
+  const authorize = requests.find((entry) => new URL(entry.url).pathname.endsWith("/handoff"));
+  expect(authorize?.url).toBe(world + "/api/v1/auth/registration/handoff");
+  expect(await authorize?.clone().json()).toMatchObject({ selected_contour: "ru" });
+  await expectDeviceProof(authorize, "handoff", "world", registration, "ru");
   const finish = requests.find((entry) => new URL(entry.url).pathname.endsWith("/finish"));
   expect(finish?.url).toBe(ru + "/api/v1/auth/registration/finish");
   expect(await finish?.clone().json()).toMatchObject({
@@ -977,11 +987,64 @@ test("uses the selected contour's documents and creation endpoint and follows th
       { document: "terms_of_use", version: "ru-v1" },
       { document: "personal_data_consent", version: "ru-v1" },
     ],
+    handoff: "test-handoff",
     notify_specialist: false,
   });
   await expectDeviceProof(finish, "finish", "ru", registration);
   expect(loadPackage()).toBeNull();
   expect(deviceKeys.has(registration.claims.device_public_key)).toBe(false);
+});
+
+test("keeps the authorized contour and retries its finish after reloading without another issuer request", async () => {
+  const registration = await saveNewPackage();
+  const finishes: Request[] = [];
+  const requests = mockApi((request) => {
+    const path = new URL(request.url).pathname;
+    if (request.method === "GET") return legalDocument(request);
+    if (path.endsWith("/handoff")) return json({ handoff: "authorized-once" });
+    if (path.endsWith("/finish")) {
+      finishes.push(request.clone());
+      if (finishes.length === 1) throw new TypeError("Connection lost");
+      return json({ code: "login_taken" }, 409);
+    }
+    return json({ login: "ada123", status: "available" });
+  });
+  function confirmTerms(): void {
+    fireEvent.click(screen.getByRole("checkbox", { name: t("signup.terms") }));
+    fireEvent.click(screen.getByRole("checkbox", { name: t("signup.privacy") }));
+  }
+  const first = display(<FinishRegistration />);
+  const choice = await screen.findByRole("combobox", { name: t("finish.region") });
+  fireEvent.change(choice, { target: { value: "ru" } });
+  confirmTerms();
+  const submit = screen.getByRole("button", { name: t("finish.button") });
+  await waitFor(() => expect(submit).toHaveProperty("disabled", false));
+  fireEvent.click(submit);
+  await screen.findByText(t("extra.auth_network_error"));
+  expect(loadRegistrationDestination(registration)).toEqual({
+    contour: "ru",
+    handoff: "authorized-once",
+  });
+  first.unmount();
+
+  display(<FinishRegistration />);
+  const pinned = await screen.findByRole("combobox", { name: t("finish.region") });
+  expect(pinned).toHaveProperty("value", "ru");
+  expect(pinned).toHaveProperty("disabled", true);
+  confirmTerms();
+  const retry = screen.getByRole("button", { name: t("finish.button") });
+  await waitFor(() => expect(retry).toHaveProperty("disabled", false));
+  fireEvent.click(retry);
+  await screen.findByText(t("finish.login_taken_now"));
+  expect(requests.filter((entry) => new URL(entry.url).pathname.endsWith("/handoff"))).toHaveLength(
+    1,
+  );
+  expect(finishes.map((entry) => entry.url)).toEqual(
+    Array(2).fill(ru + "/api/v1/auth/registration/finish"),
+  );
+  for (const request of finishes) {
+    expect(await request.json()).toMatchObject({ handoff: "authorized-once" });
+  }
 });
 
 test("scrubs the fragment and exchanges a fresh ticket only once under strict-effect replay", async () => {
