@@ -86,7 +86,7 @@ async def grant_subscription(
         row.granted_at = now
     result = _subscription_view(row)
     # spec:impl admin-content-and-access#notify-account-automatically-after-grant
-    # spec:impl in-app-notice-bar#produce-bars-access-granted-profile-tab
+    # spec:impl in-app-notice-bar#produce-bar-access-granted-profile-tab
     await raise_notice(
         session,
         account_id,

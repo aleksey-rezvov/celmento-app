@@ -203,7 +203,7 @@ async def test_revocation_waits_for_an_authenticated_read_to_commit(
 # spec:test admin-content-and-access#notify-account-automatically-after-grant
 # spec:test admin-content-and-access#end-granted-subscription-after-end
 # spec:test admin-content-and-access#change-clients-meetings-hours-amounts
-# spec:test in-app-notice-bar#produce-bars-access-granted-profile-tab
+# spec:test in-app-notice-bar#produce-bar-access-granted-profile-tab
 async def test_grant_uses_owner_plan_lock_journals_and_profile_notification(
     account_stand: AccountStand,
     mail_outbox: list[EmailMessage],
