@@ -95,7 +95,7 @@ def resolve_period(
     return RecordsPeriod.model_validate({"kind": kind, "from": start, "to": end})
 
 
-def _meeting_window(
+def meeting_window(
     period: RecordsPeriod, time_zone: str
 ) -> tuple[ColumnElement[bool], ...]:
     if period.from_ is None or period.to is None:
@@ -126,7 +126,7 @@ def _payments(leader_id: UUID, period: RecordsPeriod) -> Select[BalanceOperation
     return statement
 
 
-def _counted_minutes() -> ColumnElement[int]:
+def counted_minutes() -> ColumnElement[int]:
     # spec:impl meeting-outcome-recording#count-actual-duration-hours-log
     # spec:impl hours-log#count-client-session-supervision-therapy
     # spec:impl hours-log#count-completed-mutual-practice-meeting
@@ -137,10 +137,12 @@ def _counted_minutes() -> ColumnElement[int]:
     )
 
 
+def decimal_hours(minutes: int) -> Decimal:
+    return (Decimal(minutes) / 60).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
 def _hours(minutes: int) -> float:
-    return float(
-        (Decimal(minutes) / 60).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    )
+    return float(decimal_hours(minutes))
 
 
 def _meeting_money(
@@ -216,8 +218,8 @@ async def summary(
         Meeting.status != MeetingStatus.SCHEDULED.value,
     )
     outcomes = await session.stream(
-        stored_outcomes.add_columns(_counted_minutes())
-        .where(*_meeting_window(period, leader.time_zone))
+        stored_outcomes.add_columns(counted_minutes())
+        .where(*meeting_window(period, leader.time_zone))
         .options(
             load_only(
                 Meeting.type,
@@ -298,7 +300,7 @@ async def operations(
         rows = await session.stream(
             owned_meeting_rows(leader.account_id).where(
                 Meeting.status != MeetingStatus.SCHEDULED.value,
-                *_meeting_window(period, leader.time_zone),
+                *meeting_window(period, leader.time_zone),
             )
         )
         async for meeting, card, zone in rows:
@@ -357,6 +359,21 @@ async def operations(
     return RecordsOperationList(items=[item for _, item in items])
 
 
+def completed_log_meetings(
+    leader_id: UUID, log: RecordsHoursLogType
+) -> Select[Meeting, ClientCard | None, str | None]:
+    # spec:impl hours-log#fill-practice-log-client-sessions
+    # spec:impl hours-log#count-meeting-not-taken-place-status
+    # spec:impl meeting-outcome-recording#count-not-taken-place-meeting-hours-log
+    # spec:impl hours-log#count-attended-meetings-leader-attendee
+    # spec:impl hours-log#keep-hours-archived-clients-totals
+    # spec:impl hours-log#change-hours-counted-client-archived
+    return owned_meeting_rows(leader_id).where(
+        Meeting.status == MeetingStatus.COMPLETED.value,
+        Meeting.type.in_([kind.value for kind in LOG_TYPES[log]]),
+    )
+
+
 async def hours_log(
     session: AsyncSession,
     leader: Account,
@@ -364,17 +381,8 @@ async def hours_log(
     log: RecordsHoursLogType,
     origin: str,
 ) -> RecordsHoursLog:
-    # spec:impl hours-log#fill-practice-log-client-sessions
-    # spec:impl hours-log#count-meeting-not-taken-place-status
-    # spec:impl meeting-outcome-recording#count-not-taken-place-meeting-hours-log
-    # spec:impl hours-log#count-attended-meetings-leader-attendee
-    # spec:impl hours-log#keep-hours-archived-clients-totals
-    # spec:impl hours-log#change-hours-counted-client-archived
-    meetings = owned_meeting_rows(leader.account_id).where(
-        Meeting.status == MeetingStatus.COMPLETED.value,
-        Meeting.type.in_([kind.value for kind in LOG_TYPES[log]]),
-    )
-    minutes_expression = _counted_minutes()
+    meetings = completed_log_meetings(leader.account_id, log)
+    minutes_expression = counted_minutes()
     # spec:impl hours-log#show-total-large-type-log
     all_time_total = (
         meetings.with_only_columns(
@@ -388,7 +396,7 @@ async def hours_log(
         meetings.add_columns(
             minutes_expression, literal(0) if all_time else all_time_total
         )
-        .where(*_meeting_window(period, leader.time_zone))
+        .where(*meeting_window(period, leader.time_zone))
         .order_by(Meeting.starts_at.desc(), Meeting.meeting_id.desc())
     )
     items: list[RecordsHoursMeeting] = []

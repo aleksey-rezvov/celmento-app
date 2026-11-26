@@ -1,17 +1,18 @@
 "use client";
 
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState, type ReactElement } from "react";
 import { HoursBreakdown } from "@/components/records/HoursBreakdown";
 import { HoursMeetingRow } from "@/components/records/HoursMeetingRow";
-import { HoursTabs, logs } from "@/components/records/HoursTabs";
+import { HoursTabs, hoursLogType } from "@/components/records/HoursTabs";
 import {
   RecordsListEmpty,
   RecordsLoadState,
   RecordsScreen,
 } from "@/components/records/RecordsScreen";
 import { useRecordsHours } from "@/components/records/records-data";
-import { formatRecordsHours } from "@/components/records/records-display";
+import { formatRecordsHours, hoursExportPath } from "@/components/records/records-display";
 import type { Schemas } from "@/lib/api/client";
 import { useLanguage, useTranslation } from "@/lib/i18n";
 import { usePeriod } from "@/lib/records-period";
@@ -34,6 +35,13 @@ function Hours({ initial }: HoursProps): ReactElement {
   return (
     <RecordsScreen title="hours.title">
       <HoursTabs value={type} onChange={setType} />
+      {/* spec:impl records-hours-export#open-export */}
+      <Link
+        className="shell-secondary records-export-link"
+        href={hoursExportPath + "?type=" + type}
+      >
+        {t("export.button")}
+      </Link>
       {data ? (
         <>
           <div className="records-hours-total">
@@ -67,7 +75,7 @@ function Hours({ initial }: HoursProps): ReactElement {
 
 function RequestedHours(): ReactElement {
   const value = useSearchParams().get("type");
-  const initial = logs.find((log) => log === value) ?? "practice";
+  const initial = hoursLogType(value);
   return <Hours key={initial} initial={initial} />;
 }
 

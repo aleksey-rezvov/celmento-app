@@ -1114,6 +1114,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/records/hours/export": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["exportRecordsHours"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/records/operations": {
     parameters: {
       query?: never;
@@ -2237,6 +2253,7 @@ export interface components {
       items: components["schemas"]["RecordsOperation"][];
     };
     RecordsHoursLogType: "practice" | "supervision" | "therapy" | "training";
+    RecordsHoursExportFormat: "icf" | "sessions";
     RecordsHoursBreakdown: {
       paid: components["schemas"]["RecordsHours"] | null;
       pro_bono: components["schemas"]["RecordsHours"] | null;
@@ -4609,6 +4626,37 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["RecordsHoursLog"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      422: components["responses"]["ValidationError"];
+      500: components["responses"]["InternalError"];
+    };
+  };
+  exportRecordsHours: {
+    parameters: {
+      query: {
+        type: components["schemas"]["RecordsHoursLogType"];
+        format: components["schemas"]["RecordsHoursExportFormat"];
+        period?: components["schemas"]["RecordsPeriodKind"];
+        from?: string;
+        to?: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          "Content-Disposition"?: string;
+          "Cache-Control"?: string;
+          [name: string]: unknown;
+        };
+        content: {
+          "text/csv": string;
         };
       };
       401: components["responses"]["Unauthorized"];

@@ -1,9 +1,9 @@
 /* global caches, self */
 
 const cachePrefix = "celmento-shell-";
-const coreCache = `${cachePrefix}1-core`;
-const pageCache = `${cachePrefix}1-pages`;
-const assetCache = `${cachePrefix}1-assets`;
+const coreCache = `${cachePrefix}2-core`;
+const pageCache = `${cachePrefix}2-pages`;
+const assetCache = `${cachePrefix}2-assets`;
 const pageLimit = 16;
 const assetLimit = 256;
 const offlineNotePath = "/app/notes/offline";
@@ -15,7 +15,7 @@ const staticAssetPattern =
   /^\/_next\/static\/[\w/%+.~@-]+\.(?:css|js|mjs|woff2?|ttf|otf|png|svg|webp|ico)$/u;
 const publicAssetPattern =
   /^(?:\/(?:characters|icons)\/[\w.%+@-]+\.(?:png|svg|webp)|\/icon\.png|\/manifest\.webmanifest)$/u;
-const anonymous = { credentials: "omit", redirect: "error" };
+const shellRequest = { credentials: "same-origin", redirect: "error" };
 
 let pageWrites = Promise.resolve();
 
@@ -74,7 +74,7 @@ async function readOrFetchAsset(cache, url, source) {
     return cached;
   }
 
-  const response = (await source?.match(url)) ?? (await fetch(url, anonymous));
+  const response = (await source?.match(url)) ?? (await fetch(url, shellRequest));
   if (isAsset(response)) {
     await cache.put(url, response.clone());
   }
@@ -96,10 +96,10 @@ async function trimCore(cache) {
 }
 
 async function warmPage(pathname) {
-  // Only anonymous HTML is cached, even when the warm request came from a signed-in tab.
+  // The HTML is an account-independent shell. An invitation gateway may require its cookie.
   const url = shellUrl(pathname);
   const response = await fetch(url, {
-    ...anonymous,
+    ...shellRequest,
     cache: "no-store",
     headers: { Accept: "text/html" },
   });

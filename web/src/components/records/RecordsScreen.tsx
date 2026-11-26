@@ -8,12 +8,14 @@ import { recordsPath } from "./records-display";
 interface RecordsScreenProps {
   title: MessageKey;
   showPeriod?: boolean;
+  backHref?: string;
   children: ReactNode;
 }
 
 export function RecordsScreen({
   title,
   showPeriod = true,
+  backHref = recordsPath,
   children,
 }: RecordsScreenProps): ReactElement {
   const t = useTranslation();
@@ -26,7 +28,7 @@ export function RecordsScreen({
         title={t(title)}
         subtitle={showPeriod ? periodLabel(period, language, t) : undefined}
         back={
-          <Link className="shell-icon-button" href={recordsPath} aria-label={t("extra.back")}>
+          <Link className="shell-icon-button" href={backHref} aria-label={t("extra.back")}>
             <span aria-hidden="true">‹</span>
           </Link>
         }
