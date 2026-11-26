@@ -1,4 +1,5 @@
 import { errorCode, type Schemas } from "./api/client";
+import type { Contour } from "./contour";
 import type { MessageKey } from "./i18n/messages";
 
 export const codeCooldown = 60;
@@ -51,6 +52,22 @@ export function retryAfterSeconds(error: unknown, fallback: number): number {
 export function invalidRegistrationPackage(error: unknown): boolean {
   const code = errorCode(error);
   return code === "registration_package_invalid" || code === "registration_package_expired";
+}
+
+export function reservedRegistrationContour(error: unknown): Contour | null {
+  if (
+    errorCode(error) === "conflict" &&
+    typeof error === "object" &&
+    error !== null &&
+    "details" in error &&
+    typeof error.details === "object" &&
+    error.details !== null &&
+    "selected_contour" in error.details
+  ) {
+    const selected = error.details.selected_contour;
+    if (selected === "ru" || selected === "world") return selected;
+  }
+  return null;
 }
 
 const loginHintKeys = {

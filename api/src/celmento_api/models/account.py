@@ -67,6 +67,27 @@ class SignInTicket(Base):
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class RegistrationPackageUse(Base):
+    __tablename__ = "registration_package_use"
+    __table_args__ = (
+        CheckConstraint(
+            "package_digest ~ '^[0-9a-f]{64}$'",
+            name="registration_package_use_digest_valid",
+        ),
+        CheckConstraint(
+            "selected_contour IN ('ru', 'world')",
+            name="registration_package_use_contour_known",
+        ),
+    )
+
+    registration_package_use_id: Mapped[UUID] = mapped_column(
+        primary_key=True, server_default=text("uuidv7()")
+    )
+    package_digest: Mapped[str] = mapped_column(Text, unique=True)
+    selected_contour: Mapped[str] = mapped_column(Text)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
 class ReservedLoginWord(Base):
     __tablename__ = "reserved_login_word"
     __table_args__ = (

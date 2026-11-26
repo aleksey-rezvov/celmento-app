@@ -2,6 +2,8 @@ from base64 import b64decode, urlsafe_b64encode
 from binascii import Error as Base64Error
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from hashlib import sha256
+from typing import Literal
 from uuid import UUID
 
 from cryptography.exceptions import InvalidSignature, UnsupportedAlgorithm
@@ -16,7 +18,7 @@ from cryptography.hazmat.primitives.serialization import (
     load_der_public_key,
     load_pem_private_key,
 )
-from pydantic import ValidationError
+from pydantic import AwareDatetime, BaseModel, ValidationError
 
 from celmento_api.config import get_settings
 from celmento_api.contour import current_contour
@@ -24,6 +26,7 @@ from celmento_api.errors import AppError
 from celmento_api.models.enums import Contour, ErrorCode
 from celmento_api.schemas.auth import (
     AccountRegistration,
+    RegistrationHandoff,
     RegistrationOrigin,
     RegistrationPackage,
     RegistrationPackageClaims,
@@ -33,14 +36,24 @@ PACKAGE_LIFETIME: timedelta = timedelta(hours=24)
 DEVICE_PROOF_BYTES: int = 64
 
 
-class _SignedRegistrationClaims(RegistrationPackageClaims):
+class SignedRegistrationClaims(RegistrationPackageClaims, extra="forbid"):
+    format: Literal["registration-v2"]
     inviter_id: UUID | None = None
+
+
+class _SignedHandoff(BaseModel, extra="forbid"):
+    format: Literal["registration-handoff-v2"]
+    package_digest: str
+    entry_contour: Contour
+    selected_contour: Contour
+    expires_at: AwareDatetime
 
 
 class DeviceProofPurpose(StrEnum):
     LOGIN_PROPOSAL = "login-proposal"
     LOGIN_AVAILABILITY = "login-availability"
     FINISH = "finish"
+    HANDOFF = "handoff"
 
 
 def _encode(value: bytes) -> str:
@@ -97,6 +110,7 @@ def _verify_device_proof(
     token: str,
     proof: str,
     purpose: DeviceProofPurpose,
+    selected_contour: Contour | None,
 ) -> None:
     signature = _decode(proof)
     if len(signature) != DEVICE_PROOF_BYTES:
@@ -109,9 +123,26 @@ def _verify_device_proof(
     payload = (
         f"celmento:registration\n{purpose.value}\n{current_contour().value}\n{token}"
     )
+    if purpose == DeviceProofPurpose.HANDOFF:
+        if selected_contour is None:
+            raise ValueError("A handoff proof requires a selected contour")
+        payload += f"\n{selected_contour.value}"
     _device_key(claims.device_public_key).verify(
         der, payload.encode("utf-8"), ec.ECDSA(hashes.SHA256())
     )
+
+
+def _sign(payload: bytes) -> str:
+    return f"{_encode(payload)}.{_encode(_private_key().sign(payload))}"
+
+
+def package_digest(token: str) -> str:
+    return sha256(token.encode("ascii")).hexdigest()
+
+
+def require_unexpired(expires_at: datetime) -> None:
+    if expires_at <= datetime.now(UTC):
+        raise AppError(400, ErrorCode.REGISTRATION_PACKAGE_EXPIRED)
 
 
 def issue_package(
@@ -126,7 +157,8 @@ def issue_package(
     except TypeError, ValueError, Base64Error, UnsupportedAlgorithm:
         raise AppError(400, ErrorCode.REGISTRATION_PACKAGE_INVALID) from None
     now = datetime.now(UTC)
-    claims = _SignedRegistrationClaims(
+    claims = SignedRegistrationClaims(
+        format="registration-v2",
         email=email,
         first_name=registration.first_name,
         last_name=registration.last_name,
@@ -144,21 +176,24 @@ def issue_package(
     payload = claims.model_dump_json(exclude=excluded).encode("utf-8")
     # spec:impl registration-finish-screen#sign-device-registration-package
     return RegistrationPackage(
-        token=f"{_encode(payload)}.{_encode(_private_key().sign(payload))}",
+        token=_sign(payload),
         claims=claims,
     )
 
 
 def verify_package(
-    token: str, proof: str, purpose: DeviceProofPurpose
-) -> _SignedRegistrationClaims:
+    token: str,
+    proof: str,
+    purpose: DeviceProofPurpose,
+    selected_contour: Contour | None = None,
+) -> SignedRegistrationClaims:
     try:
         encoded, signature = token.split(".")
         payload = _decode(encoded)
-        claims = _SignedRegistrationClaims.model_validate_json(payload)
+        claims = SignedRegistrationClaims.model_validate_json(payload)
         # spec:impl region-contours#verify-package-offline
         _public_key(claims.entry_contour).verify(_decode(signature), payload)
-        _verify_device_proof(claims, token, proof, purpose)
+        _verify_device_proof(claims, token, proof, purpose, selected_contour)
     except (
         TypeError,
         ValueError,
@@ -173,9 +208,43 @@ def verify_package(
         or claims.expires_at - claims.issued_at != PACKAGE_LIFETIME
     ):
         raise AppError(400, ErrorCode.REGISTRATION_PACKAGE_INVALID)
-    if claims.expires_at <= datetime.now(UTC):
-        raise AppError(400, ErrorCode.REGISTRATION_PACKAGE_EXPIRED)
+    require_unexpired(claims.expires_at)
     # spec:impl meeting-invite-page#create-new-account-leader-contour
     if claims.origin is not None and current_contour() != claims.entry_contour:
         raise AppError(400, ErrorCode.REGION_LOCKED)
     return claims
+
+
+def _handoff_claims(
+    claims: SignedRegistrationClaims, digest: str, selected_contour: Contour
+) -> _SignedHandoff:
+    return _SignedHandoff(
+        format="registration-handoff-v2",
+        package_digest=digest,
+        entry_contour=claims.entry_contour,
+        selected_contour=selected_contour,
+        expires_at=claims.expires_at,
+    )
+
+
+def issue_handoff(
+    claims: SignedRegistrationClaims, digest: str, selected_contour: Contour
+) -> RegistrationHandoff:
+    require_unexpired(claims.expires_at)
+    payload = _handoff_claims(claims, digest, selected_contour).model_dump_json()
+    return RegistrationHandoff(handoff=_sign(payload.encode("utf-8")))
+
+
+def verify_handoff(
+    token: str, claims: SignedRegistrationClaims, digest: str, selected_contour: Contour
+) -> None:
+    try:
+        encoded, signature = token.split(".")
+        payload = _decode(encoded)
+        _public_key(claims.entry_contour).verify(_decode(signature), payload)
+        handoff = _SignedHandoff.model_validate_json(payload)
+    except TypeError, ValueError, Base64Error, ValidationError, InvalidSignature:
+        raise AppError(400, ErrorCode.REGISTRATION_PACKAGE_INVALID) from None
+    if handoff != _handoff_claims(claims, digest, selected_contour):
+        raise AppError(400, ErrorCode.REGISTRATION_PACKAGE_INVALID)
+    require_unexpired(handoff.expires_at)
