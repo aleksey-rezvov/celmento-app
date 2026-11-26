@@ -1130,6 +1130,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/records/hours/goal": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["getRecordsHoursGoal"];
+    put: operations["putRecordsHoursGoal"];
+    post?: never;
+    delete: operations["deleteRecordsHoursGoal"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/records/operations": {
     parameters: {
       query?: never;
@@ -2254,6 +2270,13 @@ export interface components {
     };
     RecordsHoursLogType: "practice" | "supervision" | "therapy" | "training";
     RecordsHoursExportFormat: "icf" | "sessions";
+    RecordsHoursGoal: {
+      hours: string;
+      label: string;
+    };
+    RecordsHoursGoalResult: {
+      goal: components["schemas"]["RecordsHoursGoal"] | null;
+    };
     RecordsHoursBreakdown: {
       paid: components["schemas"]["RecordsHours"] | null;
       pro_bono: components["schemas"]["RecordsHours"] | null;
@@ -4658,6 +4681,83 @@ export interface operations {
         content: {
           "text/csv": string;
         };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      422: components["responses"]["ValidationError"];
+      500: components["responses"]["InternalError"];
+    };
+  };
+  getRecordsHoursGoal: {
+    parameters: {
+      query: {
+        type: components["schemas"]["RecordsHoursLogType"];
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RecordsHoursGoalResult"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      422: components["responses"]["ValidationError"];
+      500: components["responses"]["InternalError"];
+    };
+  };
+  putRecordsHoursGoal: {
+    parameters: {
+      query: {
+        type: components["schemas"]["RecordsHoursLogType"];
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["RecordsHoursGoal"];
+      };
+    };
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RecordsHoursGoalResult"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      422: components["responses"]["ValidationError"];
+      500: components["responses"]["InternalError"];
+    };
+  };
+  deleteRecordsHoursGoal: {
+    parameters: {
+      query: {
+        type: components["schemas"]["RecordsHoursLogType"];
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
       };
       401: components["responses"]["Unauthorized"];
       403: components["responses"]["Forbidden"];

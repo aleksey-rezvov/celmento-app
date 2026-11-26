@@ -1,7 +1,7 @@
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi import APIRouter, Body, Depends, Query, Request, Response
 
 from celmento_api.auth import Database, LeaderAccount
 from celmento_api.errors import error_responses, invalid_request_value
@@ -13,6 +13,8 @@ from celmento_api.models.enums import (
 )
 from celmento_api.schemas.records import (
     RecordsBalanceList,
+    RecordsHoursGoal,
+    RecordsHoursGoalResult,
     RecordsHoursLog,
     RecordsOperationList,
     RecordsPeriod,
@@ -27,6 +29,11 @@ from celmento_api.services.records import (
     summary,
 )
 from celmento_api.services.records_export import hours_export_csv
+from celmento_api.services.records_goals import (
+    read_hours_goal,
+    remove_hours_goal,
+    save_hours_goal,
+)
 from celmento_api.storage import media_origin
 
 router: APIRouter = APIRouter(prefix="/records", tags=["records"])
@@ -141,6 +148,61 @@ async def export_hours(
             "Cache-Control": "private, no-store",
         },
     )
+
+
+# spec:impl records-hours-goal#leader-goal-per-log
+@router.get(
+    "/hours/goal",
+    operation_id="getRecordsHoursGoal",
+    summary="Read the specialist's hours goal for one log",
+    response_model=RecordsHoursGoalResult,
+    responses=error_responses(401, 403, 422, 500),
+)
+async def get_hours_goal(
+    leader: LeaderAccount,
+    session: Database,
+    log: Annotated[RecordsHoursLogType, Query(alias="type")],
+) -> RecordsHoursGoalResult:
+    goal = await read_hours_goal(session, leader.account_id, log)
+    return RecordsHoursGoalResult(goal=goal)
+
+
+# spec:impl records-hours-goal#validate-change
+@router.put(
+    "/hours/goal",
+    operation_id="putRecordsHoursGoal",
+    summary="Set or change the specialist's hours goal for one log",
+    response_model=RecordsHoursGoalResult,
+    responses=error_responses(401, 403, 422, 500),
+)
+async def put_hours_goal(
+    leader: LeaderAccount,
+    session: Database,
+    log: Annotated[RecordsHoursLogType, Query(alias="type")],
+    body: Annotated[RecordsHoursGoal, Body()],
+) -> RecordsHoursGoalResult:
+    goal = await save_hours_goal(session, leader.account_id, log, body)
+    await session.commit()
+    return RecordsHoursGoalResult(goal=goal)
+
+
+@router.delete(
+    "/hours/goal",
+    operation_id="deleteRecordsHoursGoal",
+    summary="Remove the specialist's hours goal for one log",
+    status_code=204,
+    response_class=Response,
+    response_model=None,
+    responses=error_responses(401, 403, 422, 500),
+)
+async def delete_hours_goal(
+    leader: LeaderAccount,
+    session: Database,
+    log: Annotated[RecordsHoursLogType, Query(alias="type")],
+) -> Response:
+    await remove_hours_goal(session, leader.account_id, log)
+    await session.commit()
+    return Response(status_code=204)
 
 
 @router.get(

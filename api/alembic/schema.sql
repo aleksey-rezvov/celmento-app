@@ -1,4 +1,4 @@
--- Alembic revision: 0009
+-- Alembic revision: 0010
 --
 -- PostgreSQL database dump
 --
@@ -253,6 +253,22 @@ CREATE TABLE public.guest_booking_receipt (
     request_digest text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT guest_booking_receipt_digest_valid CHECK ((request_digest ~ '^[0-9a-f]{64}$'::text))
+);
+
+
+--
+-- Name: hours_goal; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.hours_goal (
+    hours_goal_id uuid DEFAULT uuidv7() NOT NULL,
+    account_id uuid NOT NULL,
+    log_type text NOT NULL,
+    hours numeric(7,2) NOT NULL,
+    label text NOT NULL,
+    CONSTRAINT hours_goal_hours_valid CHECK (((hours >= 0.01) AND (hours <= 99999.99))),
+    CONSTRAINT hours_goal_label_length CHECK (((length(label) >= 1) AND (length(label) <= 120))),
+    CONSTRAINT hours_goal_log_type_known CHECK ((log_type = ANY (ARRAY['practice'::text, 'supervision'::text, 'therapy'::text, 'training'::text])))
 );
 
 
@@ -730,6 +746,22 @@ ALTER TABLE ONLY public.guest_booking_receipt
 
 ALTER TABLE ONLY public.guest_booking_receipt
     ADD CONSTRAINT guest_booking_receipt_pkey PRIMARY KEY (guest_booking_receipt_id);
+
+
+--
+-- Name: hours_goal hours_goal_account_log_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.hours_goal
+    ADD CONSTRAINT hours_goal_account_log_unique UNIQUE (account_id, log_type);
+
+
+--
+-- Name: hours_goal hours_goal_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.hours_goal
+    ADD CONSTRAINT hours_goal_pkey PRIMARY KEY (hours_goal_id);
 
 
 --
@@ -1334,6 +1366,14 @@ ALTER TABLE ONLY public.guest_booking_receipt
 
 ALTER TABLE ONLY public.guest_booking_receipt
     ADD CONSTRAINT guest_booking_receipt_meeting_id_fkey FOREIGN KEY (meeting_id) REFERENCES public.meeting(meeting_id) ON DELETE SET NULL;
+
+
+--
+-- Name: hours_goal hours_goal_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.hours_goal
+    ADD CONSTRAINT hours_goal_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.leader_profile(account_id) ON DELETE CASCADE;
 
 
 --

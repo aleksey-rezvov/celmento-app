@@ -168,6 +168,28 @@
   padding: 0.5rem 0.85rem;
 }
 
+.records-hours-goal,
+.records-goal-form {
+  display: grid;
+  min-width: 0;
+  gap: 0.625rem;
+}
+
+.records-hours-goal {
+  border-radius: 1rem;
+  padding: 0.875rem;
+  background: var(--color-card);
+}
+
+.records-hours-goal h2 {
+  overflow-wrap: anywhere;
+}
+
+.records-hours-goal progress {
+  width: 100%;
+  accent-color: var(--color-accent);
+}
+
 .records-hours-breakdown > div {
   display: flex;
   justify-content: space-between;
