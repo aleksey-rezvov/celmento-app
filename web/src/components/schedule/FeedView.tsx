@@ -14,9 +14,19 @@ import { useAccount } from "@/lib/account";
 import type { Schemas } from "@/lib/api/client";
 import { useTranslation } from "@/lib/i18n";
 import { firstCivilDayOfWeek, shiftCivilDay, zonedDay } from "@/lib/zoned-date";
+import { AttendeeEmpty } from "./AttendeeEmpty";
 import { FeedDayRow } from "./FeedDayRow";
 import { WeekSeparator } from "./WeekSeparator";
-import { compareMeetingStarts, listScheduledMeetings, type MeetingRange } from "./schedule-data";
+import {
+  compareMeetingStarts,
+  listScheduledMeetings,
+  ScheduleAccessLost,
+  scheduleItemKey,
+  scheduleItems,
+  type MeetingRange,
+  type OnScheduleLoaded,
+  type ScheduleItem,
+} from "./schedule-data";
 import { useScheduleRevalidation } from "./useScheduleRevalidation";
 
 type Direction = "earlier" | "later";
@@ -27,11 +37,13 @@ interface Request {
   direction: Direction | null;
 }
 
-interface FeedResult {
+interface FeedResult extends Pick<
+  Schemas["MeetingList"],
+  "next_outcome_in_seconds" | "attended_total" | "specialists_count"
+> {
   sequence: number;
   range: MeetingRange;
-  meetings: Schemas["Meeting"][];
-  next_outcome_in_seconds: number | null;
+  meetings: ScheduleItem[];
 }
 
 interface FeedViewProps {
@@ -41,7 +53,8 @@ interface FeedViewProps {
   onVisibleDay: (day: string) => void;
   onPickDay: (day: string) => void;
   onOpen: (id: string) => void;
-  onPendingCount: (count: number) => void;
+  onOpenAttended: (id: string) => void;
+  onScheduleLoaded: OnScheduleLoaded;
 }
 
 function visibleRow(viewport: HTMLDivElement): HTMLElement | undefined {
@@ -58,10 +71,12 @@ export function FeedView({
   onVisibleDay,
   onPickDay,
   onOpen,
-  onPendingCount,
+  onOpenAttended,
+  onScheduleLoaded,
 }: FeedViewProps): ReactElement {
-  const { account } = useAccount();
+  const { account, currentSessionToken } = useAccount();
   const t = useTranslation();
+  const leader = account.activated;
   const viewport = useRef<HTMLDivElement>(null);
   const positioned = useRef(false);
   const lastScrollTop = useRef(0);
@@ -76,13 +91,12 @@ export function FeedView({
   const error = failed === request.sequence;
   const loading = window?.sequence !== request.sequence && !error;
   const refresh = useCallback((): void => {
-    if (!loading && window) {
-      setRequest((value) => ({
-        sequence: value.sequence + 1,
-        direction: null,
-        range: window.range,
-      }));
-    }
+    if (loading) return;
+    setRequest((value) => ({
+      sequence: value.sequence + 1,
+      direction: null,
+      range: window?.range ?? value.range,
+    }));
   }, [loading, window]);
   useScheduleRevalidation(window, refresh);
 
@@ -91,8 +105,20 @@ export function FeedView({
     const { signal } = controller;
     async function load(): Promise<void> {
       try {
-        const data = await listScheduledMeetings(request.range, signal);
+        const snapshot = await listScheduledMeetings(
+          request.range,
+          currentSessionToken,
+          signal,
+          request.direction === null,
+        );
         if (signal.aborted) return;
+        const data = snapshot.schedule;
+        const meetings = scheduleItems(data, leader);
+        const metadata = {
+          next_outcome_in_seconds: data.next_outcome_in_seconds,
+          attended_total: data.attended_total,
+          specialists_count: data.specialists_count,
+        };
         const earlier = request.direction === "earlier";
         if (request.direction !== "later" && viewport.current) {
           const row = visibleRow(viewport.current);
@@ -107,40 +133,49 @@ export function FeedView({
             return {
               sequence: request.sequence,
               range: request.range,
-              meetings: data.items,
-              next_outcome_in_seconds: data.next_outcome_in_seconds,
+              meetings,
+              ...metadata,
             };
+          const loadedKeys = new Set(meetings.map(scheduleItemKey));
+          const retained = existing.meetings.filter(
+            (item) => !loadedKeys.has(scheduleItemKey(item)),
+          );
           return {
             sequence: request.sequence,
-            next_outcome_in_seconds: data.next_outcome_in_seconds,
+            ...metadata,
             range: {
               from: earlier ? request.range.from : existing.range.from,
               to: earlier ? existing.range.to : request.range.to,
             },
-            meetings: earlier
-              ? [...data.items, ...existing.meetings]
-              : [...existing.meetings, ...data.items],
+            meetings: [...retained, ...meetings],
           };
         });
-        onPendingCount(data.pending_outcomes_count);
-      } catch {
-        if (!signal.aborted) setFailed(request.sequence);
+        onScheduleLoaded(snapshot);
+      } catch (error) {
+        if (signal.aborted) return;
+        if (error instanceof ScheduleAccessLost) {
+          setWindow(null);
+          onScheduleLoaded(null);
+        }
+        setFailed(request.sequence);
       }
     }
     void load();
     return () => controller.abort();
-  }, [onPendingCount, request]);
+  }, [currentSessionToken, leader, onScheduleLoaded, request]);
 
   const days = useMemo(() => {
-    const result = new Map<string, Schemas["Meeting"][]>();
+    const result = new Map<string, ScheduleItem[]>();
     if (!window) return result;
 
     // spec:impl schedule-feed-view#hide-day-without-meetings-feed
-    for (const meeting of window.meetings.toSorted(compareMeetingStarts)) {
-      const day = zonedDay(meeting.starts_at, account.time_zone);
+    for (const item of window.meetings.toSorted((a, b) =>
+      compareMeetingStarts(a.meeting, b.meeting),
+    )) {
+      const day = zonedDay(item.meeting.starts_at, account.time_zone);
       const existing = result.get(day);
-      if (existing) existing.push(meeting);
-      else result.set(day, [meeting]);
+      if (existing) existing.push(item);
+      else result.set(day, [item]);
     }
     if (today >= window.range.from && today <= window.range.to && !result.has(today))
       result.set(today, []);
@@ -149,7 +184,10 @@ export function FeedView({
 
   useLayoutEffect(() => {
     const element = viewport.current;
-    if (!element || !window) return;
+    if (!element || !window) {
+      positioned.current = false;
+      return;
+    }
 
     if (!positioned.current) {
       // spec:impl schedule-feed-view#open-feed-positioned-today-earlier
@@ -188,6 +226,9 @@ export function FeedView({
       return previous === undefined || firstCivilDayOfWeek(day) !== firstCivilDayOfWeek(previous);
     }),
   );
+
+  if (!leader && window?.attended_total === 0)
+    return <AttendeeEmpty specialistsCount={window.specialists_count} />;
 
   // spec:impl schedule-feed-view#show-screen-3-2-continuous-feed
   return (
@@ -239,6 +280,7 @@ export function FeedView({
               timeZone={account.time_zone}
               onPickDay={onPickDay}
               onOpen={onOpen}
+              onOpenAttended={onOpenAttended}
             />
           </Fragment>
         );

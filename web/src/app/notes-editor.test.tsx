@@ -315,7 +315,7 @@ test.each([true, false])(
     const title = await screen.findByRole("textbox", { name: t("note.title_placeholder") });
     expect(title).toHaveProperty("value", "");
     expect(title.getAttribute("placeholder")).toBe(t("note.title_placeholder"));
-    expect(document.activeElement).toBe(title);
+    await waitFor(() => expect(document.activeElement).toBe(title));
     expect(
       screen.getByRole("textbox", { name: t("note.text_placeholder") }).getAttribute("placeholder"),
     ).toBe(t("note.text_placeholder"));

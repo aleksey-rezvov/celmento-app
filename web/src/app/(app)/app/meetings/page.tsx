@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useState, type ReactElement } from "react";
+import { Suspense, useCallback, useState, type ReactElement } from "react";
 import { NoticeBar } from "@/components/NoticeBar";
 import { DateSubtitle } from "@/components/schedule/DateSubtitle";
 import { DaySchedule } from "@/components/schedule/DaySchedule";
@@ -9,9 +9,11 @@ import { FeedView } from "@/components/schedule/FeedView";
 import { MiniCalendar } from "@/components/schedule/MiniCalendar";
 import { PendingOutcomesBar } from "@/components/schedule/PendingOutcomesBar";
 import { ViewSwitcher } from "@/components/schedule/ViewSwitcher";
-import { EmptyState } from "@/components/shell/EmptyState";
+import type { OnScheduleLoaded } from "@/components/schedule/schedule-data";
 import { ScreenHeader } from "@/components/shell/ScreenHeader";
+import { attendedMeetingPath } from "@/components/specialists/specialist-display";
 import { useAccount } from "@/lib/account";
+import type { Schemas } from "@/lib/api/client";
 import { useTranslation } from "@/lib/i18n";
 import {
   loadView,
@@ -23,6 +25,11 @@ import {
 } from "@/lib/schedule-view";
 import { shiftCivilDay, zonedDay, zonedInstant } from "@/lib/zoned-date";
 import "./schedule.css";
+
+const emptyStatus: { pendingCount: number; notices: Schemas["Notice"][] } = {
+  pendingCount: 0,
+  notices: [],
+};
 
 function MeetingSchedule({ savedDate }: { savedDate: string | null }): ReactElement {
   const { account } = useAccount();
@@ -39,7 +46,17 @@ function MeetingSchedule({ savedDate }: { savedDate: string | null }): ReactElem
   const [view, setView] = useState(loadView);
   const [feedAnchor, setFeedAnchor] = useState(savedDay ?? today);
   const [calendar, setCalendar] = useState(false);
-  const [pendingCount, setPendingCount] = useState(0);
+  const [status, setStatus] = useState(emptyStatus);
+  const onScheduleLoaded = useCallback<OnScheduleLoaded>((snapshot) => {
+    setStatus((previous) =>
+      snapshot
+        ? {
+            pendingCount: snapshot.schedule.pending_outcomes_count,
+            notices: snapshot.notices ?? previous.notices,
+          }
+        : emptyStatus,
+    );
+  }, []);
   const leader = account.activated;
   useSetMeetingCreationDay(view === "day" ? day : today);
 
@@ -58,6 +75,11 @@ function MeetingSchedule({ savedDate }: { savedDate: string | null }): ReactElem
 
   function openMeeting(id: string): void {
     router.push(`/app/meetings/${encodeURIComponent(id)}`);
+  }
+
+  function openAttended(id: string): void {
+    // spec:impl attended-meetings#open-details-9-9-account-taps
+    router.push(attendedMeetingPath(id));
   }
 
   function moveDay(distance: number): void {
@@ -79,9 +101,9 @@ function MeetingSchedule({ savedDate }: { savedDate: string | null }): ReactElem
         }
         actions={<ViewSwitcher value={view} onChange={switchView} />}
       />
-      <NoticeBar tab="meetings" />
+      <NoticeBar tab="meetings" items={status.notices} />
       {/* spec:impl in-app-notice-bar#keep-pending-outcomes-bar */}
-      {leader && <PendingOutcomesBar count={pendingCount} />}
+      {leader && <PendingOutcomesBar count={status.pendingCount} />}
       {view === "day" && (
         <div className="schedule-day-navigation">
           <button
@@ -108,9 +130,7 @@ function MeetingSchedule({ savedDate }: { savedDate: string | null }): ReactElem
           </button>
         </div>
       )}
-      {!leader ? (
-        <EmptyState character="attendee_meetings_empty" textKey="c.no_bookings" />
-      ) : view === "day" ? (
+      {view === "day" ? (
         <DaySchedule
           key={`${day}:${zone}`}
           day={day}
@@ -119,7 +139,8 @@ function MeetingSchedule({ savedDate }: { savedDate: string | null }): ReactElem
           onMove={moveDay}
           onCreateAt={(startsAt) => router.push(meetingCreationHref(day, startsAt))}
           onOpen={openMeeting}
-          onPendingCount={setPendingCount}
+          onOpenAttended={openAttended}
+          onScheduleLoaded={onScheduleLoaded}
         />
       ) : (
         <FeedView
@@ -130,7 +151,8 @@ function MeetingSchedule({ savedDate }: { savedDate: string | null }): ReactElem
           onVisibleDay={setDay}
           onPickDay={openDay}
           onOpen={openMeeting}
-          onPendingCount={setPendingCount}
+          onOpenAttended={openAttended}
+          onScheduleLoaded={onScheduleLoaded}
         />
       )}
       {calendar && (
@@ -153,8 +175,9 @@ function MeetingSchedule({ savedDate }: { savedDate: string | null }): ReactElem
 }
 
 function RequestedMeetingSchedule(): ReactElement {
+  const { account } = useAccount();
   const savedDate = useSearchParams().get("date");
-  return <MeetingSchedule key={savedDate} savedDate={savedDate} />;
+  return <MeetingSchedule key={account.id + ":" + savedDate} savedDate={savedDate} />;
 }
 
 export default function Meetings(): ReactElement {

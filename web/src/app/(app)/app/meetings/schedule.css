@@ -432,3 +432,26 @@
   text-decoration: underline;
   cursor: pointer;
 }
+
+.schedule-meeting[data-attended="true"] {
+  border-inline-start-color: #747984;
+  background: #e7e8eb;
+  color: #363943;
+}
+
+.schedule-meeting-status {
+  color: #515560;
+  font-size: 0.8rem;
+  line-height: 1.2;
+}
+
+.schedule-meeting[data-attended="true"] .leader-avatar {
+  background: #d7d9df;
+  color: #424651;
+}
+
+.schedule-day-block[data-attended="true"] .schedule-time-hint {
+  display: block;
+  white-space: normal;
+  line-height: 1.1;
+}

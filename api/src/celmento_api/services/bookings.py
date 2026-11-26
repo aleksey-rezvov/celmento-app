@@ -74,11 +74,26 @@ class GuestBooked:
 class BookingUnavailable:
     contact: MainContact | None
 
+    def error(self) -> AppError:
+        return AppError(
+            409,
+            ErrorCode.BOOKING_UNAVAILABLE,
+            {
+                "main_contact": self.contact.model_dump(mode="json")
+                if self.contact is not None
+                else None,
+            },
+        )
+
 
 def booking_place(
-    profile: LeaderProfile, requested: MeetingPlace | None
+    profile: LeaderProfile,
+    requested: MeetingPlace | None,
+    expected_format: SessionFormat | None,
 ) -> MeetingPlace:
     session_format = SessionFormat(profile.session_format or DEFAULT_SESSION_FORMAT)
+    if expected_format is not None and expected_format != session_format:
+        raise AppError(409, ErrorCode.CONFLICT)
     if session_format != SessionFormat.BOTH:
         return MeetingPlace(session_format.value)
     if requested is None:
@@ -343,7 +358,7 @@ async def create_guest_booking(
 
     await require_consents(session, body.consents, REGISTRATION_CONSENTS)
     profile = await leader_record(session, leader.account_id)
-    place = booking_place(profile, body.place)
+    place = booking_place(profile, body.place, body.expected_session_format)
     now = datetime.now(UTC)
     starts_at = await ensure_slot_bookable(
         session, leader, profile, body.starts_at, now

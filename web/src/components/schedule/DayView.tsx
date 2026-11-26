@@ -3,31 +3,28 @@
 import { useLayoutEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { EmptyState } from "@/components/shell/EmptyState";
 import { useAccount } from "@/lib/account";
-import type { Schemas } from "@/lib/api/client";
 import { useTranslation } from "@/lib/i18n";
 import { meetingCreationHref } from "@/lib/schedule-view";
 import { zonedDay, zonedInstant } from "@/lib/zoned-date";
+import { AttendedBlock } from "./AttendedBlock";
+import { AttendeeEmpty } from "./AttendeeEmpty";
 import { CurrentTimeLine } from "./CurrentTimeLine";
 import { HourScale, hours } from "./HourScale";
 import { MeetingBlock } from "./MeetingBlock";
-import { endOfMeeting, minuteOfDay } from "./schedule-data";
+import { endOfMeeting, minuteOfDay, scheduleItemKey, type ScheduleItem } from "./schedule-data";
 
 const minutesInDay = 1440;
 const hourInMillis = 3_600_000;
 
 interface PositionedMeeting {
-  meeting: Schemas["Meeting"];
+  item: ScheduleItem;
   start: number;
   end: number;
   lane: number;
   lanes: number;
 }
 
-function planBlocks(
-  meetings: Schemas["Meeting"][],
-  day: string,
-  timeZone: string,
-): PositionedMeeting[] {
+function planBlocks(meetings: ScheduleItem[], day: string, timeZone: string): PositionedMeeting[] {
   const placed: PositionedMeeting[] = [];
   let cluster: PositionedMeeting[] = [];
   let laneEnds: number[] = [];
@@ -39,11 +36,12 @@ function planBlocks(
   }
 
   const positions = meetings
-    .filter((meeting) => zonedDay(meeting.starts_at, timeZone) === day)
-    .map((meeting) => ({ meeting, start: minuteOfDay(meeting.starts_at, timeZone) }))
+    .filter(({ meeting }) => zonedDay(meeting.starts_at, timeZone) === day)
+    .map((item) => ({ item, start: minuteOfDay(item.meeting.starts_at, timeZone) }))
     .sort((first, second) => first.start - second.start);
 
-  for (const { meeting, start } of positions) {
+  for (const { item, start } of positions) {
+    const { meeting } = item;
     if (laneEnds.length > 0 && laneEnds.every((end) => end <= start)) finishCluster();
 
     // spec:impl schedule-day-view#make-block-height-proportional-planned
@@ -56,20 +54,16 @@ function planBlocks(
     const available = laneEnds.findIndex((candidate) => candidate <= start);
     const lane = available >= 0 ? available : laneEnds.length;
     laneEnds[lane] = end;
-    cluster.push({ meeting, start, end, lane, lanes: 1 });
+    cluster.push({ item, start, end, lane, lanes: 1 });
   }
 
   finishCluster();
   return placed;
 }
 
-function freeHours(
-  meetings: Schemas["Meeting"][],
-  day: string,
-  timeZone: string,
-): Map<number, string> {
+function freeHours(meetings: ScheduleItem[], day: string, timeZone: string): Map<number, string> {
   const occupied = meetings.map(
-    (meeting) => [Date.parse(meeting.starts_at), endOfMeeting(meeting).getTime()] as const,
+    ({ meeting }) => [Date.parse(meeting.starts_at), endOfMeeting(meeting).getTime()] as const,
   );
   const result = new Map<number, string>();
   hours.forEach((clock, hour) => {
@@ -84,10 +78,13 @@ function freeHours(
 
 interface DayViewProps {
   day: string;
-  meetings: Schemas["Meeting"][];
+  meetings: ScheduleItem[];
   leader: boolean;
+  attendedTotal: number;
+  specialistsCount: number;
   onCreateAt: (startsAt: string) => void;
   onOpen: (id: string) => void;
+  onOpenAttended: (id: string) => void;
   onMove: (distance: number) => void;
   now: Date;
 }
@@ -96,8 +93,11 @@ export function DayView({
   day,
   meetings,
   leader,
+  attendedTotal,
+  specialistsCount,
   onCreateAt,
   onOpen,
+  onOpenAttended,
   onMove,
   now,
 }: DayViewProps): ReactElement {
@@ -118,12 +118,15 @@ export function DayView({
   );
   const chosen = selected === null ? undefined : available.get(selected);
   const duration = account.leader?.session_duration_minutes ?? 60;
+  const attendeeEmpty = !leader && attendedTotal === 0;
 
   useLayoutEffect(() => {
     const viewport = timeline.current;
     // spec:impl schedule-day-view#position-scale-day-view-opens
     if (viewport) viewport.scrollTop = viewport.scrollHeight * anchor;
-  }, [anchor]);
+  }, [anchor, attendeeEmpty]);
+
+  if (attendeeEmpty) return <AttendeeEmpty specialistsCount={specialistsCount} />;
 
   return (
     <div
@@ -147,6 +150,7 @@ export function DayView({
         touch.current = null;
       }}
     >
+      {/* spec:impl schedule-day-view#show-day-without-meetings-empty */}
       {blocks.length === 0 && (
         <div className="schedule-day-empty">
           <EmptyState
@@ -171,20 +175,33 @@ export function DayView({
         <div className="schedule-day-track">
           <HourScale available={available} selected={selected} onSelect={setSelected} />
           <div className="schedule-blocks">
-            {blocks.map(({ meeting, start, end, lane, lanes }) => (
-              <MeetingBlock
-                key={meeting.id}
-                meeting={meeting}
-                timeZone={timeZone}
-                onOpen={onOpen}
-                style={{
-                  top: `${start / 14.4}%`,
-                  height: `${(end - start) / 14.4}%`,
-                  left: `${(lane / lanes) * 100}%`,
-                  width: `${100 / lanes}%`,
-                }}
-              />
-            ))}
+            {blocks.map(({ item, start, end, lane, lanes }) => {
+              const style = {
+                top: `${start / 14.4}%`,
+                height: `${(end - start) / 14.4}%`,
+                left: `${(lane / lanes) * 100}%`,
+                width: `${100 / lanes}%`,
+              };
+              // spec:impl schedule-day-view#open-meeting-card-block-person
+              return item.kind === "attended" ? (
+                <AttendedBlock
+                  key={scheduleItemKey(item)}
+                  meeting={item.meeting}
+                  timeZone={timeZone}
+                  now={now}
+                  style={style}
+                  onOpen={onOpenAttended}
+                />
+              ) : (
+                <MeetingBlock
+                  key={scheduleItemKey(item)}
+                  meeting={item.meeting}
+                  timeZone={timeZone}
+                  style={style}
+                  onOpen={onOpen}
+                />
+              );
+            })}
             {/* spec:impl schedule-day-view#highlight-leader-taps-empty-hour */}
             {chosen && selected !== null && (
               <div

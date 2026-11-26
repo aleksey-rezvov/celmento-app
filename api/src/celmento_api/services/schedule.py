@@ -6,10 +6,12 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import (
     Date,
     DateTime,
+    Select,
     and_,
     case,
     cast,
     func,
+    or_,
     select,
     text,
     type_coerce,
@@ -21,7 +23,7 @@ from sqlalchemy.sql import ColumnElement
 from celmento_api.errors import invalid_request_value
 from celmento_api.models.account import Account
 from celmento_api.models.client_card import ClientCard
-from celmento_api.models.enums import Currency, MeetingStatus, PaymentType
+from celmento_api.models.enums import Currency, MeetingStatus, MeetingType, PaymentType
 from celmento_api.models.meeting import Meeting
 from celmento_api.schemas.meetings import MeetingDefaults
 from celmento_api.services.accounts import (
@@ -77,6 +79,29 @@ def date_bounds(first: date, last: date, zone: ZoneInfo) -> tuple[datetime, date
     return lower, upper
 
 
+def attended_meeting_query(account_id: UUID) -> Select[Meeting]:
+    # spec:impl attended-meetings#show-attended-meetings-individual-client
+    # spec:impl attended-meetings#show-attended-meeting-attached
+    return (
+        select(Meeting)
+        .select_from(Meeting)
+        .join(
+            ClientCard,
+            (ClientCard.client_card_id == Meeting.client_card_id)
+            & (ClientCard.leader_account_id == Meeting.leader_account_id),
+        )
+        .where(
+            ClientCard.linked_account_id == account_id,
+            Meeting.type == MeetingType.CLIENT_SESSION.value,
+            # spec:impl attended-meetings#keep-past-attended-meetings-leader
+            or_(
+                ClientCard.archived_at.is_(None),
+                Meeting.starts_at < ClientCard.archived_at,
+            ),
+        )
+    )
+
+
 async def find_overlap(
     session: AsyncSession,
     leader_id: UUID,
@@ -98,29 +123,26 @@ async def find_overlap(
 
 
 async def calendar_days(
-    session: AsyncSession, leader: Account, month: str
+    session: AsyncSession, account: Account, month: str
 ) -> list[date]:
     try:
         first = date.fromisoformat(f"{month}-01")
     except ValueError:
         raise invalid_request_value("query", "month") from None
-    if leader.activated_at is None:
-        return []
     end_day = first.replace(day=monthrange(first.year, first.month)[1])
-    lower, upper = date_bounds(first, end_day, ZoneInfo(leader.time_zone))
-    day = cast(func.timezone(leader.time_zone, Meeting.starts_at), Date())
-    return list(
-        await session.scalars(
-            select(day)
-            .where(
-                Meeting.leader_account_id == leader.account_id,
-                Meeting.starts_at >= lower,
-                Meeting.starts_at < upper,
-            )
-            .distinct()
-            .order_by(day)
-        )
+    lower, upper = date_bounds(first, end_day, ZoneInfo(account.time_zone))
+    day = cast(func.timezone(account.time_zone, Meeting.starts_at), Date()).label("day")
+    in_month = (Meeting.starts_at >= lower, Meeting.starts_at < upper)
+    attended = (
+        attended_meeting_query(account.account_id)
+        .with_only_columns(day)
+        .where(*in_month)
     )
+    # spec:impl schedule-date-navigation#mark-dot-day-least-one
+    if account.activated_at is None:
+        return list(await session.scalars(attended.distinct().order_by(day)))
+    own = select(day).where(Meeting.leader_account_id == account.account_id, *in_month)
+    return list(await session.scalars(own.union(attended).order_by("day")))
 
 
 def _next_hour_candidates(day: date, zone: ZoneInfo, now: datetime) -> list[datetime]:

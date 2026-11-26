@@ -29,7 +29,7 @@ import { useLanguage, useTranslation, type MessageKey } from "@/lib/i18n";
 import { documentAcceptances, signupKinds, useLegalDocuments } from "@/lib/legal-documents";
 
 function GuestBooking({
-  specialist,
+  specialist: initialSpecialist,
   startsAt,
   bookingContext,
 }: {
@@ -38,6 +38,7 @@ function GuestBooking({
   bookingContext: string;
 }): ReactElement {
   const router = useRouter();
+  const [specialist, setSpecialist] = useState(initialSpecialist);
   const { state, update, idempotency } = useBookingSession();
   const language = useLanguage();
   const t = useTranslation();
@@ -66,6 +67,7 @@ function GuestBooking({
       login: specialist.login,
       booking_context: bookingContext,
       starts_at: startsAt,
+      expected_session_format: specialist.session_format,
       name: values.name.trim(),
       email: normalizeEmail(values.email),
       contact: values.contact.trim() || null,
@@ -114,6 +116,13 @@ function GuestBooking({
           ) {
             idempotency.clear();
             update({ draft: emptyBookingDraft, outcome: null });
+          } else if (latest.data && latest.data.session_format !== specialist.session_format) {
+            idempotency.clear();
+            setSpecialist(latest.data);
+            update((previous) => ({
+              ...previous,
+              draft: { ...previous.draft, values: { ...previous.draft.values, place: null } },
+            }));
           } else {
             setError("extra.auth_request_failed");
           }
@@ -166,7 +175,7 @@ function GuestBooking({
         startsAt={startsAt}
         timeZone={timeZone}
         format={specialist.session_format}
-        changeTimeHref={back}
+        changeTime={back}
         values={draft.values}
         onChange={(values) => {
           update((previous) => ({ ...previous, draft: { ...previous.draft, values } }));

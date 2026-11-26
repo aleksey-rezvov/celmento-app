@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
+import { ConfirmSheet } from "@/components/shell/ConfirmSheet";
 import { useAccount } from "@/lib/account";
 import { apiClient, type Schemas } from "@/lib/api/client";
 import { formatDate, formatTime, zoneCity } from "@/lib/format";
 import { useTranslation, type MessageKey } from "@/lib/i18n";
 import type { Translate } from "@/lib/i18n/messages";
-import { getSessionToken } from "@/lib/session";
+import { listAccountNotices } from "@/lib/notices";
+import { subscribeVisibleRevalidation } from "@/lib/visible-revalidation";
 
 type Notice = Schemas["Notice"];
 type NoticeTab = Schemas["NoticeTab"];
@@ -16,6 +18,17 @@ type NoticeAction = (notice: Notice) => Promise<void>;
 interface NoticeBarProps {
   tab: NoticeTab;
   actions?: Partial<Record<string, NoticeAction>>;
+  confirmations?: Partial<Record<Notice["key"], string>>;
+  items?: readonly Notice[];
+}
+
+type NoticeFailure = "load" | { notice: Notice; action?: NoticeAction };
+
+interface NoticeConfirmation {
+  notice: Notice;
+  action: NoticeAction;
+  label: MessageKey;
+  text: string;
 }
 
 interface NoticeFeed {
@@ -99,89 +112,99 @@ function actionLabel(notice: Notice): MessageKey | null {
   return notice.key === "client.linked_notice" ? "client.unlink" : null;
 }
 
-export function NoticeBar({ tab, actions }: NoticeBarProps): ReactElement | null {
-  const { account } = useAccount();
+export function NoticeBar({
+  tab,
+  actions,
+  confirmations,
+  items,
+}: NoticeBarProps): ReactElement | null {
+  const { account, currentSessionToken } = useAccount();
   const t = useTranslation();
   const [feed, setFeed] = useState<NoticeFeed | null>(null);
-  const [failed, setFailed] = useState(false);
+  const [failure, setFailure] = useState<NoticeFailure | null>(null);
   const [pending, setPending] = useState(false);
   const [attempt, setAttempt] = useState(0);
-  const current = feed?.accountId === account.id && feed.tab === tab ? feed.items : [];
+  const [confirmation, setConfirmation] = useState<NoticeConfirmation | null>(null);
+  const [dismissed, setDismissed] = useState<{ accountId: string; ids: Set<string> }>();
+  const mutation = useRef(false);
+  const externallyLoaded = items !== undefined;
+  const current = items ?? (feed?.accountId === account.id && feed.tab === tab ? feed.items : []);
+  const hiddenIds = dismissed?.accountId === account.id ? dismissed.ids : null;
 
   useEffect(() => {
-    const token = getSessionToken();
-    if (!token) {
-      return;
-    }
+    const token = currentSessionToken();
+    if (!token || externallyLoaded) return;
 
-    const controller = new AbortController();
+    let pendingRequest: AbortController | null = null;
+    let loaded = false;
     async function load(session: string): Promise<void> {
+      if (pendingRequest || currentSessionToken() !== session) return;
+      const controller = new AbortController();
+      pendingRequest = controller;
       try {
-        const { data } = await apiClient(session).GET("/notices", {
-          cache: "no-store",
-          signal: controller.signal,
-        });
-        if (controller.signal.aborted || getSessionToken() !== session) {
-          return;
-        }
+        const next = await listAccountNotices(session, controller.signal);
+        if (controller.signal.aborted || currentSessionToken() !== session) return;
 
-        if (data) {
-          setFeed({
-            accountId: account.id,
-            tab,
-            items: data.items.filter((notice) => notice.tab === tab),
-          });
-          setFailed(false);
-        } else {
-          setFailed(true);
+        if (next) {
+          loaded = true;
+          setFeed({ accountId: account.id, tab, items: next });
+          setFailure((previous) => (previous === "load" ? null : previous));
+        } else if (!loaded) {
+          setFailure("load");
         }
       } catch {
-        if (!controller.signal.aborted && getSessionToken() === session) {
-          setFailed(true);
-        }
+        if (!loaded && !controller.signal.aborted && currentSessionToken() === session)
+          setFailure("load");
+      } finally {
+        pendingRequest = null;
       }
     }
 
     void load(token);
-    return () => controller.abort();
-  }, [account.id, tab, attempt]);
+    const unsubscribe = subscribeVisibleRevalidation(() => void load(token));
+    return () => {
+      unsubscribe();
+      pendingRequest?.abort();
+    };
+  }, [account.id, attempt, currentSessionToken, externallyLoaded, tab]);
 
   async function remove(notice: Notice, action?: NoticeAction): Promise<void> {
-    const token = getSessionToken();
-    if (!token || pending) {
-      return;
-    }
+    const session = currentSessionToken();
+    if (!session || mutation.current) return;
 
+    mutation.current = true;
     setPending(true);
+    setFailure(null);
     try {
       if (action) {
         await action(notice);
       } else {
-        const { response } = await apiClient(token).DELETE("/notices/{notice_id}", {
+        const { response } = await apiClient(session).DELETE("/notices/{notice_id}", {
           params: { path: { notice_id: notice.id } },
         });
-        if (!response.ok && response.status !== 404) {
-          setFailed(true);
-          return;
-        }
+        if (!response.ok && response.status !== 404) throw new Error("Notice dismissal failed.");
       }
 
-      setFeed((old) =>
-        old === null ? null : { ...old, items: old.items.filter(({ id }) => id !== notice.id) },
-      );
-      setFailed(false);
+      if (currentSessionToken() !== session) return;
+      setDismissed((old) => ({
+        accountId: account.id,
+        ids: new Set([...(old?.accountId === account.id ? old.ids : []), notice.id]),
+      }));
+      setConfirmation(null);
     } catch {
-      setFailed(true);
+      if (currentSessionToken() === session) setFailure({ notice, action });
     } finally {
+      mutation.current = false;
       setPending(false);
     }
   }
 
   const visible = current.flatMap((notice) => {
+    if (notice.tab !== tab || hiddenIds?.has(notice.id)) return [];
     const copy = noticeCopy(notice, account, t);
     return copy ? [{ notice, copy }] : [];
   });
-  if (visible.length === 0 && !failed) {
+  if (visible.length === 0 && !failure && !confirmation) {
     return null;
   }
 
@@ -203,7 +226,15 @@ export function NoticeBar({ tab, actions }: NoticeBarProps): ReactElement | null
                     <button
                       type="button"
                       className="shell-notice-action"
-                      onClick={() => void remove(notice, action)}
+                      onClick={() => {
+                        const text = confirmations?.[notice.key];
+                        if (text) {
+                          setFailure(null);
+                          setConfirmation({ notice, action, label, text });
+                        } else {
+                          void remove(notice, action);
+                        }
+                      }}
                       disabled={pending}
                     >
                       {t(label)}
@@ -224,18 +255,36 @@ export function NoticeBar({ tab, actions }: NoticeBarProps): ReactElement | null
           })}
         </ul>
       )}
-      {failed && (
+      {failure && !confirmation && (
         <p className="shell-notice-error" role="alert">
           {t("extra.auth_request_failed")}{" "}
           <button
             type="button"
             className="shell-notice-action"
-            onClick={() => setAttempt((value) => value + 1)}
+            onClick={() => {
+              if (failure === "load") setAttempt((value) => value + 1);
+              else void remove(failure.notice, failure.action);
+            }}
             disabled={pending}
           >
             {t("extra.auth_retry")}
           </button>
         </p>
+      )}
+      {confirmation && (
+        <ConfirmSheet
+          title={t(confirmation.label)}
+          text={confirmation.text}
+          confirmLabel={t(confirmation.label)}
+          destructive
+          pending={pending}
+          error={failure ? t("extra.auth_request_failed") : null}
+          onConfirm={() => void remove(confirmation.notice, confirmation.action)}
+          onClose={() => {
+            setConfirmation(null);
+            setFailure(null);
+          }}
+        />
       )}
     </div>
   );

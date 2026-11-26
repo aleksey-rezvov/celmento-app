@@ -1,8 +1,8 @@
-import Image from "next/image";
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { specializationKeys } from "@/components/profile/profile-edit";
 import type { Schemas } from "@/lib/api/client";
 import { useTranslation } from "@/lib/i18n";
+import { LeaderAvatar } from "./LeaderAvatar";
+import { leaderName, leaderSpecialties } from "./booking-display";
 
 interface LeaderHeaderProps {
   firstName: string;
@@ -11,6 +11,7 @@ interface LeaderHeaderProps {
   specializations: readonly Schemas["Specialization"][];
   specializationOther: string | null;
   title?: string;
+  heading?: "h1" | "h2";
 }
 
 export function LeaderHeader({
@@ -20,39 +21,22 @@ export function LeaderHeader({
   specializations,
   specializationOther,
   title,
+  heading: Heading = "h1",
 }: LeaderHeaderProps): ReactElement {
   const t = useTranslation();
-  const [photoFailed, setPhotoFailed] = useState(false);
-  const name = [firstName, lastName].filter(Boolean).join(" ");
-  const initials = [firstName, lastName]
-    .map((part) => Array.from(part.trim())[0] ?? "")
-    .join("")
-    .toUpperCase();
-  const specialties = specializations
-    .map((specialization) =>
-      specialization === "other" && specializationOther
-        ? specializationOther
-        : t(specializationKeys[specialization]),
-    )
-    .join(" · ");
+  const name = leaderName(firstName, lastName);
+  const specialties = leaderSpecialties(specializations, specializationOther, t);
 
   return (
     <header className="booking-leader">
-      <div className="booking-avatar" aria-hidden="true">
-        {photoUrl && !photoFailed ? (
-          <Image
-            src={photoUrl}
-            alt=""
-            width={106}
-            height={106}
-            unoptimized
-            onError={() => setPhotoFailed(true)}
-          />
-        ) : (
-          initials
-        )}
-      </div>
-      <h1>{title ?? name}</h1>
+      <LeaderAvatar
+        firstName={firstName}
+        lastName={lastName}
+        photoUrl={photoUrl}
+        size={106}
+        className="booking-avatar"
+      />
+      <Heading>{title ?? name}</Heading>
       {specialties && <p>{specialties}</p>}
     </header>
   );

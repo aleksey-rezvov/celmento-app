@@ -1,10 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import { useAccount } from "@/lib/account";
 import type { Schemas } from "@/lib/api/client";
 import { useTranslation } from "@/lib/i18n";
 import { DayView } from "./DayView";
-import { listScheduledMeetings } from "./schedule-data";
+import {
+  listScheduledMeetings,
+  ScheduleAccessLost,
+  scheduleItems,
+  type OnScheduleLoaded,
+} from "./schedule-data";
 import { useScheduleRevalidation } from "./useScheduleRevalidation";
 
 interface DayScheduleProps {
@@ -14,34 +20,58 @@ interface DayScheduleProps {
   onMove: (distance: number) => void;
   onCreateAt: (startsAt: string) => void;
   onOpen: (id: string) => void;
-  onPendingCount: (count: number) => void;
+  onOpenAttended: (id: string) => void;
+  onScheduleLoaded: OnScheduleLoaded;
 }
 
-export function DaySchedule({ day, onPendingCount, ...view }: DayScheduleProps): ReactElement {
+export function DaySchedule({
+  day,
+  leader,
+  onScheduleLoaded,
+  ...view
+}: DayScheduleProps): ReactElement {
   const t = useTranslation();
+  const { currentSessionToken } = useAccount();
   const [schedule, setSchedule] = useState<Schemas["MeetingList"] | null>(null);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
-  const refresh = useCallback(() => setAttempt((value) => value + 1), []);
+  const loading = useRef(false);
+  const refresh = useCallback(() => {
+    if (!loading.current) setAttempt((value) => value + 1);
+  }, []);
   useScheduleRevalidation(schedule, refresh);
 
   useEffect(() => {
     const controller = new AbortController();
     const { signal } = controller;
-    void listScheduledMeetings({ from: day, to: day }, signal).then(
-      (data) => {
-        if (!signal.aborted) {
-          setSchedule(data);
+    loading.current = true;
+    void listScheduledMeetings({ from: day, to: day }, currentSessionToken, signal)
+      .then(
+        (snapshot) => {
+          if (signal.aborted) return;
+          setSchedule(snapshot.schedule);
           setFailed(false);
-          onPendingCount(data.pending_outcomes_count);
-        }
-      },
-      () => {
-        if (!signal.aborted) setFailed(true);
-      },
-    );
+          onScheduleLoaded(snapshot);
+        },
+        (error: unknown) => {
+          if (signal.aborted) return;
+          if (error instanceof ScheduleAccessLost) {
+            setSchedule(null);
+            onScheduleLoaded(null);
+          }
+          setFailed(true);
+        },
+      )
+      .finally(() => {
+        if (!signal.aborted) loading.current = false;
+      });
     return () => controller.abort();
-  }, [attempt, day, onPendingCount]);
+  }, [attempt, currentSessionToken, day, onScheduleLoaded]);
+
+  const meetings = useMemo(
+    () => (schedule ? scheduleItems(schedule, leader) : []),
+    [leader, schedule],
+  );
 
   return (
     <>
@@ -56,7 +86,14 @@ export function DaySchedule({ day, onPendingCount, ...view }: DayScheduleProps):
       {schedule === null ? (
         <div aria-busy={!failed} />
       ) : (
-        <DayView {...view} day={day} meetings={schedule.items} />
+        <DayView
+          {...view}
+          day={day}
+          leader={leader}
+          meetings={meetings}
+          attendedTotal={schedule.attended_total}
+          specialistsCount={schedule.specialists_count}
+        />
       )}
     </>
   );
