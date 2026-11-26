@@ -166,6 +166,12 @@ def test_write_requests_use_named_schemas() -> None:
         ("/public/bookings", "post", "application/json", "GuestBookingCreate"),
         ("/bookings", "post", "application/json", "AppBookingCreate"),
         (
+            "/subscription-requests",
+            "post",
+            "application/json",
+            "SubscriptionRequestCreate",
+        ),
+        (
             "/public/specialists/{login}/meet/{meeting_id}/join",
             "post",
             "application/json",

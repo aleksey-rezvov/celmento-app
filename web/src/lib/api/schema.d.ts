@@ -938,6 +938,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/plans/limit-hits": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["confirmClientLimit"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/public/bookings": {
     parameters: {
       query?: never;
@@ -1380,6 +1396,7 @@ export interface components {
       default_rate: components["schemas"]["DecimalAmount"] | null;
       default_currency: components["schemas"]["Currency"];
       plan: components["schemas"]["PlanStatus"];
+      subscription_requested_at?: string | null;
     };
     BalanceSummary: {
       balance: components["schemas"]["Money"];
@@ -4274,6 +4291,28 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["PlansOverview"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      500: components["responses"]["InternalError"];
+    };
+  };
+  confirmClientLimit: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["PlanStatus"];
         };
       };
       401: components["responses"]["Unauthorized"];

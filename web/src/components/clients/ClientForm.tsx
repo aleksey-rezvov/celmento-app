@@ -8,7 +8,6 @@ import { apiClient, errorCode, type Schemas } from "@/lib/api/client";
 import { useTranslation, type MessageKey } from "@/lib/i18n";
 import { useIdempotencyKey } from "@/lib/idempotency";
 import { limitScreenHref, peoplePath } from "@/lib/limit";
-import { getSessionToken } from "@/lib/session";
 import { isZeroClientRate, PaymentTypeChips } from "./PaymentTypeChips";
 import { normalizeClientRate, RateCurrencyFields, validRateInput } from "./RateCurrencyFields";
 import "./client-form.css";
@@ -37,7 +36,7 @@ export function ClientForm({
   onCreated,
   onLimitReached,
 }: ClientFormProps): ReactElement {
-  const { refresh } = useAccount();
+  const { currentSessionToken, refresh } = useAccount();
   const router = useRouter();
   const pathname = usePathname();
   const t = useTranslation();
@@ -65,11 +64,8 @@ export function ClientForm({
     event.preventDefault();
     if (busy || !canSave) return;
 
-    const token = getSessionToken();
-    if (token === null) {
-      router.replace("/login");
-      return;
-    }
+    const token = currentSessionToken();
+    if (token === null) return;
 
     const body: Create = { ...contacts, name: name.trim() };
     if (full && paymentType !== null) {
@@ -85,15 +81,17 @@ export function ClientForm({
         params: { header: { "Idempotency-Key": keyFor(body) } },
         body,
       });
+      if (currentSessionToken() !== token) return;
       if (data) {
         clear();
         await refresh();
-        onCreated(data);
+        if (currentSessionToken() === token) onCreated(data);
         return;
       }
 
       if (errorCode(error) === "client_limit_reached") {
         await refresh();
+        if (currentSessionToken() !== token) return;
         if (onLimitReached) {
           onLimitReached();
         } else {
@@ -104,9 +102,9 @@ export function ClientForm({
 
       setFailure("extra.auth_request_failed");
     } catch {
-      setFailure("extra.auth_network_error");
+      if (currentSessionToken() === token) setFailure("extra.auth_network_error");
     }
-    setBusy(false);
+    if (currentSessionToken() === token) setBusy(false);
   }
 
   // spec:impl client-card-create#show-screen-5-3-field-name

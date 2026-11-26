@@ -183,6 +183,8 @@ function signIn(
     if (url.pathname === "/api/v1/account") return json(account);
     if (url.pathname === "/api/v1/notices")
       return json({ items: [] } satisfies Schemas["NoticeList"]);
+    if (request.method === "POST" && url.pathname === "/api/v1/plans/limit-hits" && account.leader)
+      return json(account.leader.plan);
     if (request.method === "GET" && url.pathname === "/api/v1/clients" && account.leader) {
       return json({
         items: clients(url.searchParams),
@@ -475,6 +477,8 @@ test("loads the authorized client name on the restore limit screen and returns t
   });
   const requests = mockApi((request, url) => {
     if (url.pathname === "/api/v1/account") return json(signedIn);
+    if (url.pathname === "/api/v1/plans/limit-hits" && request.method === "POST")
+      return json(freePlan(3));
     if (url.pathname === "/api/v1/notices") return json({ items: [] });
     if (url.pathname === cardApiPath + "/meetings") return json({ upcoming: [], past: [] });
     if (url.pathname === cardApiPath + "/notes")
@@ -525,6 +529,8 @@ test("handles malformed, inaccessible and retriable restore limit lookups", asyn
   let fail = true;
   const requests = mockApi((request, url) => {
     if (url.pathname === "/api/v1/account") return json(accountFor(freePlan(3)));
+    if (url.pathname === "/api/v1/plans/limit-hits" && request.method === "POST")
+      return json(freePlan(3));
     if (url.pathname.endsWith(secondId)) return json({ code: "not_found", name: "Spoofed" }, 404);
     if (url.pathname.endsWith(firstId) && request.method === "GET") {
       if (fail) {
@@ -779,4 +785,18 @@ test("loads the client photo from the authenticated API and revokes replaced and
   expect(revoke).toHaveBeenCalledWith("blob:client-photo-first");
   view.unmount();
   expect(revoke).toHaveBeenCalledWith("blob:client-photo-second");
+});
+
+test("does not send a queued creation from a form bound to the previous session", async () => {
+  const requests = signIn(accountFor(freePlan(1)));
+  render(atPath(newClientPath, <NewClient />));
+  const name = await screen.findByRole("textbox", { name: t("new.name") });
+  fireEvent.change(name, { target: { value: "Previous account's draft" } });
+  const submit = screen.getByRole("button", { name: t("extra.client_save") });
+  expect(submit).toHaveProperty("disabled", false);
+
+  window.localStorage.setItem("celmento_app_session", "signed-in-after-the-render");
+  fireEvent.click(submit);
+  expect(requests.filter(({ method }) => method === "POST")).toHaveLength(0);
+  expect(navigation.router.replace).not.toHaveBeenCalled();
 });
