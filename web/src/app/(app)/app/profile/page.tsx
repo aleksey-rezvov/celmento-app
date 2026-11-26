@@ -4,6 +4,8 @@ import { useState, type FormEvent, type ReactElement } from "react";
 import { useRouter } from "next/navigation";
 import { DocumentOverlay } from "@/components/DocumentOverlay";
 import { NoticeBar } from "@/components/NoticeBar";
+import { useLivePlan } from "@/components/plans/plans-data";
+import { profilePlansHref } from "@/components/plans/plans-paths";
 import { PhotoPicker, saveProfilePhoto, type PendingPhoto } from "@/components/profile/PhotoPicker";
 import {
   AboutSection,
@@ -57,6 +59,9 @@ export default function ProfilePage(): ReactElement {
   const valid = validProfile(fields);
   const timeZone = zoneLabel(account.time_zone, new Date(), language);
   const dirty = Object.keys(update).length > 0 || photo !== undefined;
+  useLivePlan(
+    leader !== null && draft === null && !dirty && !saving && !photoBusy && !settingsBusy,
+  );
 
   function discard(): void {
     setDraft(null);
@@ -206,6 +211,8 @@ export default function ProfilePage(): ReactElement {
             </div>
             <PriceSection leader={fields.leader} onChange={leaderChange} />
             <ProfileSection title="profile.plan">
+              {/* spec:impl subscription-plans-request#show-plan-section-plan-free-n */}
+              {/* spec:impl subscription-plans-request#return-plan-section-plan-free-current */}
               <div className="profile-field">
                 <strong>
                   {leader.plan.kind === "subscription" && leader.plan.subscription_until
@@ -219,7 +226,7 @@ export default function ProfilePage(): ReactElement {
                     : t("profile.plan_free", { N: leader.plan.active_clients })}
                 </strong>
               </div>
-              <ProfileAction onClick={() => navigate("/app/plans")}>
+              <ProfileAction onClick={() => navigate(profilePlansHref)}>
                 {t("profile.plans_button")}
               </ProfileAction>
             </ProfileSection>

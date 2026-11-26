@@ -8,6 +8,7 @@ import type { Schemas } from "@/lib/api/client";
 import { t } from "@/lib/i18n/messages";
 import { loadDraft, saveDraft } from "@/lib/meeting-draft";
 import { setSessionToken } from "@/lib/session";
+import LimitPage from "../limit/page";
 import ClientArchivePage from "../people/clients/[id]/archive/page";
 import ClientCardPage from "../people/clients/[id]/page";
 import ClientMeetingsPage from "../people/clients/[id]/meetings/page";
@@ -784,10 +785,17 @@ test("opens the short client form and picks the newly saved client for the curre
 
 // spec:test client-card-create#run-limit-check-new-client-tapped
 // spec:test meeting-form#open-short-client-form-new-client
+// spec:test free-plan-client-limit#return-meeting-form-entered-value
+// spec:test free-plan-client-limit#make-creating-restoring-new-client
 test("keeps meeting details on the free-plan limit screen and restores them on return", async () => {
   setLocation(newHref + "?date=" + date);
-  const requests = setup(undefined, { account: owner(3) });
-  render(view(<NewMeetingPage />));
+  let active = 3;
+  const requests = setup((request, path) => {
+    if (path === "/account") return json(owner(active));
+    if (request.method === "POST" && path === "/plans/limit-hits")
+      return json(owner(active).leader?.plan);
+  });
+  const rendered = render(view(<NewMeetingPage />));
   await screen.findByRole("button", { name: t("form.type_session") });
   change(t("form.comment"), "A draft survives");
   change(t("form.link"), "https://meet.example.test/draft");
@@ -807,9 +815,19 @@ test("keeps meeting details on the free-plan limit screen and restores them on r
   expect(loadDraft("different-owner", newHref)).toBeNull();
   expect(loadDraft("owner", newHref + "/other")).toBeNull();
 
-  cleanup();
+  setLocation(limit.pathname + limit.search);
+  rendered.rerender(view(<LimitPage />));
+  await screen.findByRole("heading", { name: t("limit.new_client") });
+  expect(screen.getByRole("link", { name: t("extra.back") }).getAttribute("href")).toBe(returnTo);
+  expect(calls(requests, "POST", "/plans/limit-hits")).toHaveLength(1);
+  expect(calls(requests, "GET", "/plans")).toHaveLength(0);
+
+  active = 2;
+  act(() => window.dispatchEvent(new Event("focus")));
+  await waitFor(() => expect(nav.replace).toHaveBeenCalledWith(returnTo));
+  expect(calls(requests, "POST", "/plans/limit-hits")).toHaveLength(1);
   setLocation(returnTo);
-  render(view(<NewMeetingPage />));
+  rendered.rerender(view(<NewMeetingPage />));
   expect(await screen.findByRole("textbox", { name: t("form.comment") })).toHaveProperty(
     "value",
     "A draft survives",

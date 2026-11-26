@@ -1,121 +1,180 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, type ReactElement } from "react";
 import { Character } from "@/components/Character";
 import { clientPath } from "@/components/clients/card/ClientCardScreen";
+import { LeaderPlansGate } from "@/components/plans/LeaderPlansGate";
+import {
+  useApplyPlanStatus,
+  useLimitConfirmation,
+  useLivePlan,
+} from "@/components/plans/plans-data";
+import { fromLimitHref } from "@/components/plans/plans-paths";
 import { useAccount } from "@/lib/account";
 import { apiClient, type Schemas } from "@/lib/api/client";
 import { useTranslation, type MessageKey } from "@/lib/i18n";
-import { limitReturnPath, peoplePath } from "@/lib/limit";
-import { getSessionToken } from "@/lib/session";
+import {
+  activeClientLimitReached,
+  limitReturnPath,
+  limitScreenHref,
+  newClientPath,
+  peoplePath,
+} from "@/lib/limit";
+import "../plans/plans.css";
 
 const uuid = /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/iu;
-type LookupResult =
-  | { key: string; card: Pick<Schemas["ClientCard"], "id" | "name"> }
-  | { key: string; error: MessageKey };
+type Card = Pick<Schemas["ClientCard"], "id" | "name" | "status">;
+type CardLookup = { key: string; card: Card } | { key: string; error: MessageKey };
 
-function LimitMessage(): ReactElement {
-  const query = useSearchParams();
-  const { account } = useAccount();
+interface LimitMessageProps {
+  restore: boolean;
+  target: string | null;
+  returnTo: string;
+}
+
+function resumeCreation(back: string): string {
+  const { pathname } = new URL(back, "https://celmento.invalid");
+  return /^\/app\/meetings\/(new|[^/]+\/edit)$/u.test(pathname) ? back : newClientPath;
+}
+
+function LimitMessage({ restore, target, returnTo }: LimitMessageProps): ReactElement {
+  const { account, currentSessionToken } = useAccount();
+  const router = useRouter();
   const t = useTranslation();
   const [attempt, setAttempt] = useState(0);
-  const [lookup, setLookup] = useState<LookupResult | null>(null);
-  const restore = query.get("reason") === "restore";
-  const target = query.get("client_id");
-  const clientId = restore && account.activated && target && uuid.test(target) ? target : null;
+  const [lookup, setLookup] = useState<CardLookup | null>(null);
+  const clientId = restore && target && uuid.test(target) ? target : null;
   const key = clientId ? [account.id, clientId, attempt].join(":") : null;
   const result = lookup?.key === key ? lookup : null;
   const card = result && "card" in result ? result.card : null;
-  const error =
+  const confirmation = useLimitConfirmation(!restore || card?.status === "archived");
+  const plan = confirmation?.data ?? null;
+  const applied = useApplyPlanStatus(plan);
+  const livePlan = account.leader?.plan;
+  const capped = applied && livePlan !== undefined && activeClientLimitReached(livePlan);
+  useLivePlan(capped);
+  const cardError =
     restore && !clientId ? "clients.not_found" : result && "error" in result ? result.error : null;
-  const back = restore
-    ? card
-      ? clientPath(card.id)
-      : peoplePath
-    : limitReturnPath(query.get("returnTo"));
-  // spec:impl free-plan-client-limit#show-new-client-screen-10-1-card
-  const message = restore
-    ? card && t("limit.restore", { name: card.name, имя: card.name })
-    : t("limit.new_client");
+  const error = cardError ?? confirmation?.error ?? null;
+  const back = restore ? (card ? clientPath(card.id) : peoplePath) : returnTo;
+  const retryTo = restore ? back : resumeCreation(back);
+  const limitHref =
+    restore && clientId
+      ? limitScreenHref("restore", { clientId })
+      : limitScreenHref("new_client", { returnTo });
 
   useEffect(() => {
-    if (!clientId || !key) return;
-
+    const session = currentSessionToken();
+    if (!clientId || !key || !session) return;
     const controller = new AbortController();
     const { signal } = controller;
-    const token = getSessionToken();
 
-    async function load(clientId: string, key: string): Promise<void> {
+    async function load(token: string, clientId: string, key: string): Promise<void> {
       try {
         const { data, response } = await apiClient(token).GET("/clients/{client_id}", {
           params: { path: { client_id: clientId } },
           signal,
           cache: "no-store",
         });
-        if (signal.aborted || getSessionToken() !== token) return;
+        if (signal.aborted || currentSessionToken() !== token) return;
 
         if (data) {
-          setLookup({ key, card: { id: data.id, name: data.name } });
+          setLookup({ key, card: { id: data.id, name: data.name, status: data.status } });
         } else {
           const missing = [403, 404, 422].includes(response.status);
           setLookup({ key, error: missing ? "clients.not_found" : "extra.auth_request_failed" });
         }
       } catch {
-        if (!signal.aborted && getSessionToken() === token) {
+        if (!signal.aborted && currentSessionToken() === token) {
           setLookup({ key, error: "extra.auth_network_error" });
         }
       }
     }
 
-    void load(clientId, key);
+    void load(session, clientId, key);
     return () => controller.abort();
-  }, [clientId, key]);
+  }, [clientId, currentSessionToken, key]);
+
+  useEffect(() => {
+    // spec:impl free-plan-client-limit#make-creating-restoring-new-client
+    if (currentSessionToken() && (card?.status === "active" || (applied && !capped))) {
+      router.replace(retryTo);
+    }
+  }, [applied, capped, card?.status, currentSessionToken, retryTo, router]);
+
+  // spec:impl free-plan-client-limit#show-new-client-screen-10-1-card
+  const message = restore
+    ? card && t("limit.restore", { name: card.name, имя: card.name })
+    : t("limit.new_client");
 
   return (
-    <main className="grid gap-4">
+    <main className="plans-page plans-outcome">
       {/* spec:impl free-plan-client-limit#return-screen-action-started-people */}
+      {/* spec:impl free-plan-client-limit#return-meeting-form-entered-value */}
       <Link className="shell-icon-button" href={back} aria-label={t("extra.back")}>
-        <span aria-hidden="true">←</span>
+        <span aria-hidden="true">‹</span>
       </Link>
+      {/* spec:impl free-plan-client-limit#open-screen-10-1-thoughtful-character */}
       {/* spec:impl character-illustrations#show-celmento-master-blue-celmento-master-red */}
-      <Character state="plan_limit_pair" size={172} />
-      <section className="grid justify-items-start gap-4 rounded-3xl bg-white p-5">
-        {message && (
-          <h1 className="text-2xl leading-tight font-bold [font-family:var(--font-title)]">
-            {message}
-          </h1>
-        )}
-        {error ? (
-          <>
-            <p role="alert">{t(error)}</p>
-            {error !== "clients.not_found" && (
-              <button
-                className="shell-secondary"
-                type="button"
-                onClick={() => setAttempt((value) => value + 1)}
-              >
-                {t("extra.auth_retry")}
-              </button>
-            )}
-          </>
-        ) : (
-          message === null && <div aria-busy="true" />
-        )}
-        <Link className="shell-secondary" href={peoplePath}>
-          {t("limit.open_clients")}
-        </Link>
-        <p className="text-sm text-[var(--color-secondary)]">{t("limit.history_kept")}</p>
-      </section>
+      {capped && <Character state="plan_limit_pair" size={172} />}
+      {error ? (
+        <section className="plans-card">
+          <p role="alert">{t(error)}</p>
+          {cardError && cardError !== "clients.not_found" && (
+            <button
+              className="shell-secondary"
+              type="button"
+              onClick={() => setAttempt((previous) => previous + 1)}
+            >
+              {t("extra.auth_retry")}
+            </button>
+          )}
+          <Link className="shell-secondary" href={peoplePath}>
+            {t("limit.open_clients")}
+          </Link>
+        </section>
+      ) : capped ? (
+        <section className="plans-card">
+          <h1>{message}</h1>
+          {/* spec:impl free-plan-client-limit#show-buttons-open-clients-opening-active */}
+          {/* spec:impl subscription-plans-request#open-screen-10-2-titled-plans */}
+          <Link className="shell-primary" href={fromLimitHref(limitHref)}>
+            {t("limit.plans")}
+          </Link>
+          <Link className="shell-secondary" href={peoplePath}>
+            {t("limit.open_clients")}
+          </Link>
+          {/* spec:impl free-plan-client-limit#show-history-kept-buttons-screen-10-1 */}
+          <p className="plans-hint">{t("limit.history_kept")}</p>
+        </section>
+      ) : (
+        <div className="plans-loading" aria-busy="true" />
+      )}
     </main>
+  );
+}
+
+function RequestedLimit(): ReactElement {
+  const query = useSearchParams();
+
+  return (
+    <LimitMessage
+      key={query.toString()}
+      restore={query.get("reason") === "restore"}
+      target={query.get("client_id")}
+      returnTo={limitReturnPath(query.get("returnTo"))}
+    />
   );
 }
 
 export default function Limit(): ReactElement {
   return (
-    <Suspense fallback={<main aria-busy="true" />}>
-      <LimitMessage />
-    </Suspense>
+    <LeaderPlansGate>
+      <Suspense fallback={<main aria-busy="true" />}>
+        <RequestedLimit />
+      </Suspense>
+    </LeaderPlansGate>
   );
 }
