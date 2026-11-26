@@ -130,7 +130,7 @@ test("cold offline navigation opens previously visited Meetings, Notes and note 
     await shell.warm(page);
     expect(shell.fetch).toHaveBeenCalledWith(
       origin + page,
-      expect.objectContaining({ credentials: "omit", redirect: "error" }),
+      expect.objectContaining({ credentials: "same-origin", redirect: "error" }),
     );
   }
   shell.disconnect();
