@@ -24,10 +24,10 @@ from celmento_api.schemas.money import Money, format_amount
 from celmento_api.services.account_access import account_date
 
 
-def card_balance_expression() -> ScalarSelect[Decimal]:
+def card_balance_expression(as_of: date | None = None) -> ScalarSelect[Decimal]:
     # spec:impl client-balance-payments#compute-client-balance-payments-plus
     # spec:impl client-rate-currency#convert-amounts-currencies-add-up
-    return (
+    statement = (
         select(
             type_coerce(
                 func.coalesce(func.sum(BalanceOperation.amount), Decimal(0)), Numeric()
@@ -38,8 +38,10 @@ def card_balance_expression() -> ScalarSelect[Decimal]:
             BalanceOperation.currency == ClientCard.currency,
         )
         .correlate(ClientCard)
-        .scalar_subquery()
     )
+    if as_of is not None:
+        statement = statement.where(BalanceOperation.date <= as_of)
+    return statement.scalar_subquery()
 
 
 async def current_amount(session: AsyncSession, card: ClientCard) -> Decimal:

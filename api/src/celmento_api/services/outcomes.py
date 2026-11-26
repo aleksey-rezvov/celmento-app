@@ -36,6 +36,7 @@ def visible_charge_choice(meeting: Meeting) -> bool | None:
 
 
 def client_charge(meeting: Meeting) -> Decimal:
+    # spec:impl meeting-outcome-recording#create-balance-operation-income-expense
     if meeting.payment_type == PaymentType.PAID.value and (
         meeting.status == MeetingStatus.COMPLETED.value
         or visible_charge_choice(meeting)
@@ -145,6 +146,7 @@ async def record_outcome(
         else None
     )
     own_practice = meeting.type == MeetingType.MUTUAL_PRACTICE.value
+    # spec:impl meeting-outcome-recording#let-leader-change-outcome-completed
     if outcome["status"] == MeetingOutcomeStatus.COMPLETED:
         price = meeting.price
         if not own_practice and "price" in outcome:
@@ -161,6 +163,9 @@ async def record_outcome(
             meeting.my_duration_minutes or meeting.duration_minutes,
         )
         meeting.charged = None
+        # spec:impl meeting-outcome-recording#set-status-completed-done-saved-paid
+        # spec:impl meeting-outcome-recording#set-status-completed-done-saved-barter
+        # spec:impl meeting-outcome-recording#set-status-completed-done-saved-pro-bono
         meeting.status = MeetingStatus.COMPLETED.value
     else:
         needs_decision = not own_practice and (
@@ -168,6 +173,8 @@ async def record_outcome(
         )
         if needs_decision and "charged" not in outcome:
             raise AppError(400, ErrorCode.OUTCOME_CHOICE_REQUIRED)
+        # spec:impl meeting-outcome-recording#set-status-not-taken-place-screen-4-3-saved-yes
+        # spec:impl meeting-outcome-recording#set-status-not-taken-place-screen-4-3-saved-no
         meeting.charged = outcome.get("charged", False) if needs_decision else False
         meeting.actual_duration_minutes = None
         meeting.status = MeetingStatus.NOT_TAKEN_PLACE.value
