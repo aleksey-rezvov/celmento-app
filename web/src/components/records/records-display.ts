@@ -1,4 +1,5 @@
 import type { Schemas } from "@/lib/api/client";
+import { formatSessionCount } from "@/lib/format";
 import type { Language, MessageKey } from "@/lib/i18n/messages";
 
 export const recordsPath = "/app/records";
@@ -22,10 +23,7 @@ export const logLabels = {
 } as const satisfies Record<Schemas["RecordsHoursLogType"], MessageKey>;
 
 export function formatRecordsHours(hours: number, language: Language): string {
-  return new Intl.NumberFormat(language === "ru" ? "ru-RU" : "en-GB", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(hours);
+  return formatSessionCount(hours.toFixed(2), language);
 }
 
 export function recordsMeetingPath(meetingId: string): string {

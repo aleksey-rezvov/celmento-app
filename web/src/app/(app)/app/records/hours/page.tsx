@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState, type ReactElement } from "react";
 import { HoursBreakdown } from "@/components/records/HoursBreakdown";
+import { HoursGoal } from "@/components/records/HoursGoal";
 import { HoursMeetingRow } from "@/components/records/HoursMeetingRow";
 import { HoursTabs, hoursLogType } from "@/components/records/HoursTabs";
 import {
@@ -55,6 +56,7 @@ function Hours({ initial }: HoursProps): ReactElement {
             )}
           </div>
           <HoursBreakdown value={data.breakdown} />
+          <HoursGoal key={type} type={type} totalHours={data.total_hours} />
           {data.items.length > 0 ? (
             <ul className="records-list">
               {data.items.map((meeting) => (

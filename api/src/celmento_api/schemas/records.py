@@ -1,8 +1,9 @@
 from datetime import date
-from typing import Annotated
+from decimal import Decimal
+from typing import Annotated, ClassVar
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints
 
 from celmento_api.models.enums import (
     MeetingType,
@@ -10,11 +11,19 @@ from celmento_api.models.enums import (
     RecordsOperationKind,
     RecordsPeriodKind,
 )
+from celmento_api.schemas.account import TextInput
 from celmento_api.schemas.balance import BalanceSummary
 from celmento_api.schemas.clients import ClientRef
 from celmento_api.schemas.money import Money
 
 RecordsHours = Annotated[float, Field(ge=0)]
+
+
+def _validate_goal_hours(value: str) -> str:
+    # spec:impl records-hours-goal#validate-change
+    if not Decimal("0.01") <= Decimal(value) <= Decimal("99999.99"):
+        raise ValueError("Goal hours must be between 0.01 and 99999.99")
+    return value
 
 
 class RecordsPeriod(BaseModel):
@@ -75,6 +84,24 @@ class RecordsHoursLog(BaseModel):
     period_hours: RecordsHours
     breakdown: RecordsHoursBreakdown
     items: list[RecordsHoursMeeting]
+
+
+class RecordsHoursGoal(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
+
+    hours: Annotated[
+        str,
+        Field(pattern=r"^[0-9]{1,5}(\.[0-9]{1,2})?$"),
+        AfterValidator(_validate_goal_hours),
+    ]
+    label: Annotated[
+        TextInput,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=120),
+    ] = Field(repr=False)
+
+
+class RecordsHoursGoalResult(BaseModel):
+    goal: RecordsHoursGoal | None
 
 
 class RecordsBalanceItem(BaseModel):

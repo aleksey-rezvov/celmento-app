@@ -79,6 +79,7 @@ const growthPath = recordsPath + "/hours?type=supervision";
 const practicePath = recordsPath + "/hours?type=practice";
 const hoursExportPath = recordsPath + "/hours/export";
 const exportEndpoint = "/records/hours/export";
+const goalEndpoint = "/records/hours/goal";
 const balancesPath = recordsPath + "/balances";
 const clientId = "019ac7a0-0000-7ab1-b031-111111111111";
 const meetingId = "019ac7a0-0000-7ab1-b031-222222222222";
@@ -184,6 +185,7 @@ function json(result: unknown, status = 200): Response {
 function serve(
   respond: (path: string, url: URL, request: Request) => Response | Promise<Response>,
   signedIn: Account = account,
+  respondGoal?: (url: URL, request: Request) => Response | Promise<Response>,
 ): Request[] {
   setSessionToken(token);
   const requests: Request[] = [];
@@ -191,10 +193,11 @@ function serve(
     "fetch",
     vi.fn(async (request: Request) => {
       expect(request.headers.get("authorization")).toBe("Bearer " + token);
-      expect(request.method).toBe("GET");
       requests.push(request.clone());
       const url = new URL(request.url);
       const path = url.pathname.replace(/^\/api\/v1/u, "");
+      if (path === goalEndpoint && respondGoal) return respondGoal(url, request);
+      expect(request.method).toBe("GET");
       switch (path) {
         case "/account":
           return json(signedIn);
@@ -202,6 +205,8 @@ function serve(
           return json({ items: [] } satisfies Schemas["FolderList"]);
         case "/notes":
           return json({ items: [], total: 0 } satisfies Schemas["NoteList"]);
+        case goalEndpoint:
+          return json({ goal: null } satisfies Schemas["RecordsHoursGoalResult"]);
         default:
           return respond(path, url, request);
       }
@@ -962,7 +967,8 @@ test("opens the requested hours log with current and total hours and refreshes t
       .getAttribute("href"),
   ).toBe("/app/meetings");
   expect(screen.getByRole("main").querySelector("picture")).toBeNull();
-  expect(recordsMain().getAllByRole("button")).toHaveLength(4);
+  await screen.findByRole("button", { name: t("goal.set") });
+  expect(recordsMain().getAllByRole("button")).toHaveLength(5);
   expect(queries(requests, "/records/hours")).toEqual([
     { period: "month", type: "supervision" },
     { period: "month", type: "practice" },
@@ -993,6 +999,137 @@ test("uses all-time totals without a redundant current-period number on a direct
       .getAttribute("aria-pressed"),
   ).toBe("true");
   expect(queries(requests, "/records/hours")).toEqual([{ period: "all", type: "training" }]);
+});
+
+// spec:test records-hours-goal#open-edit-delete
+test("creates, edits, and removes a goal only in the selected hours log", async () => {
+  let goal: Schemas["RecordsHoursGoal"] | null = null;
+  const requests = serve(
+    (path) => {
+      if (path === "/records/hours") return json(emptyHours);
+      throw new Error("Unexpected read " + path);
+    },
+    account,
+    async (url, request) => {
+      if (request.method === "GET")
+        return json({ goal: url.searchParams.get("type") === "practice" ? goal : null });
+      expect(Object.fromEntries(url.searchParams)).toEqual({ type: "practice" });
+      if (request.method === "PUT") {
+        goal = (await request.json()) as Schemas["RecordsHoursGoal"];
+        return json({ goal });
+      }
+      expect(request.method).toBe("DELETE");
+      goal = null;
+      return new Response(null, { status: 204 });
+    },
+  );
+  mount(practicePath);
+
+  fireEvent.click(await screen.findByRole("button", { name: t("goal.set") }));
+  const create = within(screen.getByRole("dialog", { name: t("goal.set") }));
+  expect(create.queryByRole("button", { name: t("card.delete") })).toBeNull();
+  const save = create.getByRole("button", { name: t("form.save") });
+  const label = create.getByLabelText(t("goal.label"));
+  expect(label).toHaveProperty("placeholder", t("goal.label_hint"));
+  fireEvent.change(label, { target: { value: "  PCC practice  " } });
+  fireEvent.change(create.getByLabelText(t("goal.hours")), { target: { value: "0" } });
+  expect(save).toHaveProperty("disabled", true);
+  fireEvent.change(create.getByLabelText(t("goal.hours")), { target: { value: "4,75" } });
+  fireEvent.click(save);
+  await screen.findByRole("heading", { name: "PCC practice" });
+  expect(screen.queryByRole("dialog")).toBeNull();
+
+  fireEvent.click(recordsMain().getByRole("button", { name: t("hours.supervision") }));
+  await screen.findByRole("button", { name: t("goal.set") });
+  expect(screen.queryByRole("heading", { name: "PCC practice" })).toBeNull();
+  const practice = recordsMain().getByRole("button", { name: t("hours.practice") });
+  fireEvent.click(practice);
+  await screen.findByRole("heading", { name: "PCC practice" });
+  fireEvent.click(recordsMain().getByRole("button", { name: t("card.edit") }));
+  const edit = within(screen.getByRole("dialog", { name: t("card.edit") }));
+  expect(edit.getByLabelText(t("goal.hours"))).toHaveProperty("value", "4.75");
+  expect(edit.getByLabelText(t("goal.label"))).toHaveProperty("value", "PCC practice");
+  fireEvent.change(edit.getByLabelText(t("goal.hours")), { target: { value: "10" } });
+  fireEvent.change(edit.getByLabelText(t("goal.label")), { target: { value: "Renewal" } });
+  fireEvent.click(edit.getByRole("button", { name: t("form.save") }));
+  await screen.findByRole("heading", { name: "Renewal" });
+
+  fireEvent.click(recordsMain().getByRole("button", { name: t("card.edit") }));
+  fireEvent.click(
+    within(screen.getByRole("dialog")).getByRole("button", { name: t("card.delete") }),
+  );
+  const confirmation = within(screen.getByRole("dialog", { name: t("card.delete") }));
+  expect(confirmation.getByText(t("extra.records_goal_delete_effect"))).toBeDefined();
+  expect(requests.some(({ method }) => method === "DELETE")).toBe(false);
+  fireEvent.click(confirmation.getByRole("button", { name: t("archive.cancel") }));
+  fireEvent.click(
+    within(screen.getByRole("dialog", { name: t("card.edit") })).getByRole("button", {
+      name: t("card.delete"),
+    }),
+  );
+  fireEvent.click(
+    within(screen.getByRole("dialog", { name: t("card.delete") })).getByRole("button", {
+      name: t("card.delete"),
+    }),
+  );
+  await screen.findByRole("button", { name: t("goal.set") });
+  expect(screen.queryByRole("heading", { name: "Renewal" })).toBeNull();
+  expect(practice.getAttribute("aria-pressed")).toBe("true");
+  expect(queries(requests, goalEndpoint)).toEqual([
+    { type: "practice" },
+    { type: "practice" },
+    { type: "supervision" },
+    { type: "practice" },
+    { type: "practice" },
+    { type: "practice" },
+  ]);
+  const writes = requests.filter(({ method }) => method !== "GET");
+  expect(writes.map(({ method }) => method)).toEqual(["PUT", "PUT", "DELETE"]);
+  await expect(writes[0]?.json()).resolves.toEqual({ hours: "4.75", label: "PCC practice" });
+  await expect(writes[1]?.json()).resolves.toEqual({ hours: "10", label: "Renewal" });
+});
+
+// spec:test records-hours-goal#show-goal-progress
+test("shows progress and completed goals based on all-time hours with a selected period", async () => {
+  let totalHours = 4.25;
+  const requests = serve(
+    (path) => {
+      if (path === "/records/summary") return json(summary({ has_outcomes: true }));
+      if (path === "/records/hours")
+        return json({ ...emptyHours, total_hours: totalHours, period_hours: 1.25 });
+      throw new Error("Unexpected read " + path);
+    },
+    account,
+    () => json({ goal: { hours: "10.75", label: "PCC practice" } }),
+  );
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: t("acc.period_all") }));
+  fireEvent.click(
+    within(screen.getByRole("dialog")).getByRole("button", { name: t("acc.period_month") }),
+  );
+  await screen.findByRole("heading", { name: t("acc.practice_hours") });
+  fireEvent.click(tile("acc.practice_hours"));
+
+  const progress = t("goal.progress", { H: "4.25", goal: "10.75" });
+  const meter = await screen.findByRole("progressbar", { name: progress });
+  expect(meter).toHaveProperty("value", 4.25);
+  expect(meter).toHaveProperty("max", 10.75);
+  expect(recordsMain().getByText(progress)).toBeDefined();
+  expect(recordsMain().getByText(t("goal.left", { H: "6.50" }))).toBeDefined();
+  expect(recordsMain().getByText(t("hours.period", { H: "1.25" }))).toBeDefined();
+  expect(recordsMain().getByText(t("acc.period_month"))).toBeDefined();
+  expect(queries(requests, "/records/hours")).toEqual([{ period: "month", type: "practice" }]);
+  expect(queries(requests, goalEndpoint)).toEqual([{ type: "practice" }]);
+
+  totalHours = 1234.5;
+  refocus();
+  expect(await screen.findByText(t("goal.reached"))).toBeDefined();
+  expect(recordsMain().getByText(t("goal.left", { H: "0.00" }))).toBeDefined();
+  expect(meter).toHaveProperty("value", 10.75);
+  expect(
+    recordsMain().getByText(t("goal.progress", { H: "1 234.50", goal: "10.75" })),
+  ).toBeDefined();
+  expect(recordsMain().getByText(t("hours.period", { H: "1.25" }))).toBeDefined();
 });
 
 // spec:test accounting-summary#open-prepaid-debts-tile-screen-title
@@ -1230,11 +1367,13 @@ test("keeps financial amounts and hours read-only across all Records screens", a
   await screen.findByRole("heading", { name: t("acc.practice_hours") });
   fireEvent.click(tile("acc.practice_hours"));
   await screen.findByText(t("hours.total", { H: "2.50" }));
+  await screen.findByRole("button", { name: t("goal.set") });
   expectControls([
     t("hours.practice"),
     t("hours.supervision"),
     t("hours.therapy"),
     t("hours.training"),
+    t("goal.set"),
   ]);
   fireEvent.click(recordsMain().getByRole("link", { name: t("extra.back") }));
 

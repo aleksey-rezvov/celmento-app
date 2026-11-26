@@ -132,6 +132,21 @@ export function useRecordsHours(
   return useRecordsResource(request);
 }
 
+export function useRecordsHoursGoal(
+  type: Schemas["RecordsHoursLogType"],
+): RecordsResource<Schemas["RecordsHoursGoalResult"]> {
+  const request = useCallback<RecordsRequest<Schemas["RecordsHoursGoalResult"]>>(
+    (api, signal) =>
+      api.GET("/records/hours/goal", {
+        params: { query: { type } },
+        signal,
+        cache: "no-store",
+      }),
+    [type],
+  );
+  return useRecordsResource(request, false);
+}
+
 export function useRecordsHoursExport(
   period: Period,
   type: Schemas["RecordsHoursLogType"],
