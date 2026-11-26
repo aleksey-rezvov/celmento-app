@@ -11,6 +11,7 @@ import {
   clearRegistration,
   closeCode,
   loadOpenCode,
+  restoreSignup,
   resumePath,
   saveCode,
   saveEmail,
@@ -127,8 +128,8 @@ function CodeForm({ initialCode }: CodeFormProps): ReactElement {
           });
           break;
         case "registration_required":
-          saveSignupEmail(challenge.email);
-          closeCode();
+          if (challenge.registration) restoreSignup(challenge.registration);
+          else saveSignupEmail(challenge.email);
           router.replace("/register");
           break;
         default:
@@ -185,6 +186,12 @@ function CodeForm({ initialCode }: CodeFormProps): ReactElement {
             ...challenge,
             lockedUntil: Date.now() + retryAfterSeconds(error, codeLockout) * 1000,
           });
+          break;
+        case "consent_required":
+          if (challenge.registration) {
+            restoreSignup(challenge.registration);
+            router.replace("/register");
+          }
           break;
         default:
           setMessage("extra.auth_request_failed");

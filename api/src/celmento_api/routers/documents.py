@@ -1,4 +1,6 @@
-from fastapi import APIRouter
+from typing import Annotated
+
+from fastapi import APIRouter, Query
 
 from celmento_api.auth import Database
 from celmento_api.errors import error_responses
@@ -14,9 +16,14 @@ router: APIRouter = APIRouter(prefix="/documents", tags=["documents"])
     operation_id="getLegalDocument",
     summary="Get the current version of a legal document",
     response_model=LegalDocument,
-    responses=error_responses(422, 500),
+    responses=error_responses(404, 422, 500),
 )
 async def get_document(
-    kind: LegalDocumentKind, language: Language, session: Database
+    kind: LegalDocumentKind,
+    language: Language,
+    session: Database,
+    version: Annotated[
+        str | None, Query(min_length=1, max_length=128, pattern=r"^[^\x00]*$")
+    ] = None,
 ) -> LegalDocument:
-    return await read_document(session, kind, language)
+    return await read_document(session, kind, language, version)

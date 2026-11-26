@@ -98,7 +98,11 @@ async def seed_preseeded_notes(session: AsyncSession) -> None:
     await session.execute(
         statement.on_conflict_do_update(
             index_elements=[PreseededNoteSet.preseeded_note_set_id],
-            set_={"content": content, "updated_at": func.clock_timestamp()},
+            set_={
+                "content": content,
+                "version": PreseededNoteSet.version + 1,
+                "updated_at": func.clock_timestamp(),
+            },
             where=(PreseededNoteSet.version == INITIAL_VERSION)
             & PreseededNoteSet.content.is_distinct_from(content),
         )

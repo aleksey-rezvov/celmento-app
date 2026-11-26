@@ -629,9 +629,8 @@ async def test_concurrent_login_claims_keep_one_update(
     async def synchronized_check(
         session: AsyncSession, login: str, exclude_account_id: UUID | None = None
     ) -> str:
-        result = await require_available(session, login, exclude_account_id)
         await ready.wait()
-        return result
+        return await require_available(session, login, exclude_account_id)
 
     monkeypatch.setattr(accounts, "require_available_login", synchronized_check)
     async with timeout(5):

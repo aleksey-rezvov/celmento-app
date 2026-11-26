@@ -2,7 +2,7 @@ from itertools import count
 from re import fullmatch, sub
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from celmento_api.errors import AppError
@@ -11,6 +11,13 @@ from celmento_api.models.enums import ErrorCode, LoginAvailabilityStatus
 
 MIN_LOGIN_LENGTH: int = 5
 MAX_LOGIN_LENGTH: int = 32
+
+
+async def lock_login(session: AsyncSession, login: str) -> None:
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:subject, 0))"),
+        {"subject": f"login:{login.lower()}"},
+    )
 
 
 def login_rule(login: str) -> LoginAvailabilityStatus:
@@ -57,6 +64,8 @@ async def login_status(
 async def require_available_login(
     session: AsyncSession, login: str, exclude_account_id: UUID | None = None
 ) -> str:
+    if fullmatch(r"[A-Za-z0-9_]+", login) is not None:
+        await lock_login(session, login)
     availability = await login_status(session, login, exclude_account_id)
     # spec:impl booking-link-login#save-login-violates-rule-taken
     if availability == LoginAvailabilityStatus.TAKEN:

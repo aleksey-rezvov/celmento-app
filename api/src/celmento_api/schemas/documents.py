@@ -27,3 +27,4 @@ class LegalDocument(BaseModel):
     language: Language
     title: str
     text: str
+    uploaded_at: AwareDatetime

@@ -52,6 +52,10 @@ class Acceptance(Base):
             name="acceptance_live_meeting_matches_booking",
         ),
         CheckConstraint(
+            "guest_client_card_id IS NULL OR guest_booking_id IS NOT NULL",
+            name="acceptance_guest_card_requires_booking",
+        ),
+        CheckConstraint(
             "(kind = 'age_confirmation') = (version IS NULL)",
             name="acceptance_requires_document_version",
         ),
@@ -67,6 +71,9 @@ class Acceptance(Base):
         ForeignKey("meeting.meeting_id", ondelete="SET NULL"), index=True
     )
     guest_booking_id: Mapped[UUID | None] = mapped_column(index=True)
+    guest_client_card_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("client_card.client_card_id", ondelete="SET NULL"), index=True
+    )
     kind: Mapped[str] = mapped_column(Text)
     version: Mapped[str | None] = mapped_column(Text)
     accepted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

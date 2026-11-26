@@ -39,12 +39,15 @@ from celmento_api.services.sign_in_codes import find_account
 async def validate_registration(
     session: AsyncSession,
     registration: AccountRegistration,
+    *,
+    current_consent_required: bool,
 ) -> tuple[RegistrationOrigin | None, UUID | None]:
     await require_consents(
         session,
         registration.consents,
         REGISTRATION_CONSENTS,
         timestamp_required=True,
+        current_required=current_consent_required,
     )
     origin = registration.origin
     if origin is None:
@@ -98,6 +101,7 @@ async def finish_registration(
         consents,
         REGISTRATION_CONSENTS,
         timestamp_required=local_registration,
+        current_required=not local_registration,
     )
     activation = body.activation
     if claims.intent == RegistrationIntent.LEAD:

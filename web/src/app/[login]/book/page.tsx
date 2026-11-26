@@ -135,6 +135,7 @@ function GuestBooking({
           // spec:impl guest-booking-flow#re-check-book-slot-free-taken
           router.replace(back);
           break;
+        // spec:impl free-plan-client-limit#refuse-booking-create-new-card
         case "booking_unavailable":
           idempotency.clear();
           update((previous) => ({ ...previous, outcome: { kind: "unavailable" } }));

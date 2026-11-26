@@ -18,6 +18,7 @@ from celmento_api.errors import AppError
 from celmento_api.models.account import Account
 from celmento_api.models.enums import ErrorCode, Language
 from celmento_api.schemas.auth import (
+    AccountRegistration,
     CodeRequestOutcome,
     SignInCodeRequest,
     SignInCodeRequestResult,
@@ -34,6 +35,7 @@ STATE_RETENTION_SECONDS: int = CODE_VALID_SECONDS + LOCK_SECONDS
 class Challenge:
     digest: bytes = field(repr=False)
     sent_at: float
+    registration_digest: bytes | None = field(default=None, repr=False)
     attempts: int = 0
     unlock_at: float = 0
     used: bool = False
@@ -88,6 +90,31 @@ def _code_digest(identity: bytes, code: str) -> bytes:
     return _digest(b"code-value:" + identity + code.encode("ascii"))
 
 
+def registration_matches(
+    accepted: bytes | None, registration: AccountRegistration
+) -> bool:
+    return accepted is not None and compare_digest(
+        accepted, _registration_digest(registration)
+    )
+
+
+def _registration_digest(registration: AccountRegistration) -> bytes:
+    # The challenge already identifies the email. The mail language can change on resend.
+    payload = registration.model_dump_json(exclude={"email", "language"}).encode()
+    return _digest(b"code-registration:" + payload)
+
+
+def pending_registration_matches(email: str, registration: AccountRegistration) -> bool:
+    with _lock:
+        existing = _challenges.get(_identity(email))
+        return (
+            existing is not None
+            and not existing.used
+            and monotonic() - existing.sent_at < STATE_RETENTION_SECONDS
+            and registration_matches(existing.registration_digest, registration)
+        )
+
+
 def _rate_error(code: ErrorCode, seconds: float) -> AppError:
     return AppError(429, code, {"retry_after_seconds": ceil(seconds)})
 
@@ -98,7 +125,7 @@ def _forget(identity: bytes, challenge: Challenge) -> None:
             del _challenges[identity]
 
 
-def _issue_code(identity: bytes) -> str:
+def _issue_code(identity: bytes, registration_digest: bytes | None) -> str:
     now = monotonic()
     with _lock:
         existing = _challenges.get(identity)
@@ -118,7 +145,12 @@ def _issue_code(identity: bytes) -> str:
             while compare_digest(existing.digest, code_digest):
                 code = f"{randbelow(1_000_000):06d}"
                 code_digest = _code_digest(identity, code)
-        challenge = Challenge(digest=code_digest, sent_at=now, attempts=attempts)
+        challenge = Challenge(
+            digest=code_digest,
+            sent_at=now,
+            registration_digest=registration_digest,
+            attempts=attempts,
+        )
         _challenges[identity] = challenge
         get_running_loop().call_later(
             STATE_RETENTION_SECONDS,
@@ -129,21 +161,26 @@ def _issue_code(identity: bytes) -> str:
     return code
 
 
-async def send_code(email: str, language: Language) -> None:
+async def send_code(
+    email: str, language: Language, registration: AccountRegistration | None = None
+) -> None:
+    registration_digest = (
+        _registration_digest(registration) if registration is not None else None
+    )
     # spec:impl email-code-sign-in#send-code-email-transactional-email-code
     await send_email(
         email,
         EmailTemplate.SIGN_IN_CODE,
         language,
         {
-            "code": _issue_code(_identity(email)),
+            "code": _issue_code(_identity(email), registration_digest),
             "code_valid_minutes": str(CODE_VALID_SECONDS // 60),
         },
     )
 
 
 @contextmanager
-def claim_code(email: str, code: str) -> Generator[None]:
+def claim_code(email: str, code: str) -> Generator[bytes | None]:
     identity = _identity(email)
     now = monotonic()
     with _lock:
@@ -165,7 +202,7 @@ def claim_code(email: str, code: str) -> Generator[None]:
         challenge.claimed = True
     succeeded = False
     try:
-        yield
+        yield challenge.registration_digest
         succeeded = True
     finally:
         with _lock:

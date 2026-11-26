@@ -590,6 +590,7 @@ test("returns a taken booking to fresh slots without requesting the same fields 
 // spec:test guest-booking-flow#refuse-booking-self-booking-entered
 // spec:test guest-booking-flow#show-screen-9-4-character-text
 // spec:test guest-booking-flow#show-screen-9-4-email-matches
+// spec:test free-plan-client-limit#refuse-booking-create-new-card
 test("shows the self-booking refusal inline and opens the contact screen for booking unavailable", async () => {
   const requests = publicApi((request, path) => {
     if (path === profile) return json(specialist({ session_format: "online" }));

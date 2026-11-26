@@ -1806,6 +1806,7 @@ export interface components {
       title: string;
       text: string;
       contour: components["schemas"]["Contour"];
+      uploaded_at: string;
     };
     FeedbackScreen: "profile";
     FeedbackCreate: {
@@ -2650,7 +2651,9 @@ export interface operations {
   };
   replacePreseededNotes: {
     parameters: {
-      query?: never;
+      query: {
+        expected_version: number;
+      };
       header?: never;
       path: {
         language: components["schemas"]["Language"];
@@ -2672,6 +2675,7 @@ export interface operations {
         };
       };
       401: components["responses"]["Unauthorized"];
+      409: components["responses"]["Conflict"];
       422: components["responses"]["ValidationError"];
       500: components["responses"]["InternalError"];
     };
@@ -3561,6 +3565,7 @@ export interface operations {
     parameters: {
       query: {
         language: components["schemas"]["Language"];
+        version?: string;
       };
       header?: never;
       path: {
@@ -3578,6 +3583,7 @@ export interface operations {
           "application/json": components["schemas"]["LegalDocument"];
         };
       };
+      404: components["responses"]["NotFound"];
       422: components["responses"]["ValidationError"];
       500: components["responses"]["InternalError"];
     };

@@ -33,6 +33,7 @@ from celmento_api.models.enums import (
     LegalDocumentKind,
     MeetingSource,
     NoticeKey,
+    NoticeTab,
 )
 from celmento_api.models.legal import Acceptance
 from celmento_api.models.meeting import GuestBookingReceipt, Meeting
@@ -484,6 +485,9 @@ async def test_booking_retries_lock_scope_if_card_link_changes_after_discovery(
 # spec:test guest-booking-flow#refuse-booking-self-booking-entered
 # spec:test guest-booking-flow#create-meeting-card-set-link
 # spec:test free-plan-client-limit#show-leader-bar-limit-new-client-guest
+# spec:test free-plan-client-limit#refuse-booking-create-new-card
+# spec:test free-plan-client-limit#block-count-booking-matches-existing
+# spec:test free-plan-client-limit#show-bar-archived-client-tried-raised
 async def test_guest_refusals_leave_data_unchanged_and_durably_notify_leader(
     account_stand: AccountStand,
     mail_outbox: list[EmailMessage],
@@ -537,6 +541,9 @@ async def test_guest_refusals_leave_data_unchanged_and_durably_notify_leader(
         ErrorCode.BOOKING_UNAVAILABLE,
     )
     assert refused.details == {"main_contact": None}
+    async with stand.session() as session:
+        assert await session.scalar(select(func.count()).select_from(ClientCard)) == 3
+        assert await session.scalar(select(func.count()).select_from(Meeting)) == 1
     existing = booking_from(
         await client.post(BOOKINGS, json={**body, "starts_at": next_time})
     )
@@ -564,6 +571,7 @@ async def test_guest_refusals_leave_data_unchanged_and_durably_notify_leader(
     )
     assert len(mail_outbox) == count
     notices = await notices_for(stand, leader)
+    assert all(notice.tab == NoticeTab.PEOPLE for notice in notices)
     assert {(notice.key, notice.params["name"]) for notice in notices} == {
         (NoticeKey.LIMIT_NEW_CLIENT, "Another guest"),
         (NoticeKey.ARCHIVED_CLIENT_TRIED, "Guest nickname"),
