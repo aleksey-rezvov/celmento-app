@@ -44,30 +44,35 @@ async def test_openapi_is_served_under_the_api_prefix(api_client: AsyncClient) -
         assert path != "/api/v1" and not path.startswith("/api/v1/")
 
 
-def test_implemented_operations_match_contract(
-    openapi_contract: dict[str, object],
-) -> None:
-    actual_paths = _object(api.openapi()["paths"], "generated paths")
-    expected_paths = _object(openapi_contract["paths"], "contract paths")
-
-    for path, methods in actual_paths.items():
+def _operations(
+    schema: dict[str, object], source: str
+) -> dict[tuple[str, str, str], dict[str, object]]:
+    operations: dict[tuple[str, str, str], dict[str, object]] = {}
+    for path, methods in _object(schema["paths"], f"{source} paths").items():
         for method, operation in _object(methods, path).items():
             if method not in HTTP_METHODS:
                 continue
-            label = f"{method.upper()} {path}"
-            assert path in expected_paths, label
-            expected_methods = _object(expected_paths[path], f"contract path {path}")
-            assert method in expected_methods, label
-            actual = _object(operation, f"generated {label}")
-            expected = _object(expected_methods[method], f"contract {label}")
-            assert actual["operationId"] == expected["operationId"], label
-            assert (
-                _object(actual["responses"], label).keys()
-                == _object(
-                    expected["responses"],
-                    label,
-                ).keys()
-            ), label
+            label = f"{source} {method.upper()} {path}"
+            details = _object(operation, label)
+            operation_id = details["operationId"]
+            assert isinstance(operation_id, str), label
+            operations[path, method, operation_id] = details
+    return operations
+
+
+def test_every_contract_operation_is_implemented(
+    openapi_contract: dict[str, object],
+) -> None:
+    actual = _operations(api.openapi(), "generated")
+    expected = _operations(openapi_contract, "contract")
+    assert actual.keys() == expected.keys()
+    for key, operation in actual.items():
+        path, method, operation_id = key
+        label = f"{method.upper()} {path} ({operation_id})"
+        assert (
+            _object(operation["responses"], label).keys()
+            == _object(expected[key]["responses"], label).keys()
+        ), label
 
 
 def test_calendar_responses_use_calendar_media_type() -> None:
