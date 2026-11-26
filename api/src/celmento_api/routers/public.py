@@ -9,6 +9,11 @@ from celmento_api.errors import AppError, error_responses, invalid_request_value
 from celmento_api.models.account import Account
 from celmento_api.models.enums import ErrorCode, Language
 from celmento_api.models.meeting import Meeting
+from celmento_api.routers.calendar_response import (
+    CALENDAR_RESPONSES,
+    CalendarResponse,
+    calendar_response,
+)
 from celmento_api.schemas.account import TimeZone
 from celmento_api.schemas.auth import SignInCodeRequest, SignInCodeRequestResult
 from celmento_api.schemas.clients import IdempotencyKey
@@ -21,7 +26,6 @@ from celmento_api.schemas.public import (
     PublicSpecialistPage,
 )
 from celmento_api.services.bookings import BookingUnavailable, create_guest_booking
-from celmento_api.services.ics import calendar_event
 from celmento_api.services.public_pages import (
     guest_booking,
     invite_page,
@@ -34,28 +38,6 @@ from celmento_api.services.slots import free_slots
 from celmento_api.storage import media_origin
 
 router: APIRouter = APIRouter(prefix="/public", tags=["public"])
-
-
-class CalendarResponse(Response):
-    media_type: str | None = "text/calendar"
-
-
-CALENDAR_RESPONSES: dict[int | str, dict[str, object]] = {
-    200: {"model": BookingCalendarEvent},
-    **error_responses(404, 422, 500),
-}
-
-
-def _calendar(
-    meeting: Meeting, leader: Account, language: Language
-) -> CalendarResponse:
-    return CalendarResponse(
-        calendar_event(meeting, leader, language),
-        headers={
-            "Content-Disposition": 'attachment; filename="celmento.ics"',
-            "Cache-Control": "no-store",
-        },
-    )
 
 
 async def _require_invite(
@@ -122,16 +104,7 @@ async def post_guest_booking(
     await session.commit()
     # spec:impl guest-booking-flow#create-meeting-card-set-link
     if isinstance(booked, BookingUnavailable):
-        contact = booked.contact
-        raise AppError(
-            409,
-            ErrorCode.BOOKING_UNAVAILABLE,
-            {
-                "main_contact": contact.model_dump(mode="json")
-                if contact is not None
-                else None
-            },
-        )
+        raise booked.error()
     # spec:impl transactional-email#hand-email-delivery-immediately-after
     if booked.email is not None:
         background_tasks.add_task(booked.email.send)
@@ -153,7 +126,7 @@ async def get_booking_calendar(booking_id: UUID, session: Database) -> CalendarR
     leader, meeting = booking
     if meeting.guest_language is None:
         raise AppError(404, ErrorCode.NOT_FOUND)
-    return _calendar(meeting, leader, Language(meeting.guest_language))
+    return calendar_response(meeting, leader, Language(meeting.guest_language))
 
 
 @router.get(
@@ -191,7 +164,7 @@ async def get_invite_calendar(
     session: Database,
 ) -> CalendarResponse:
     leader, meeting = await _require_invite(session, login, meeting_id)
-    return _calendar(meeting, leader, language)
+    return calendar_response(meeting, leader, language)
 
 
 @router.post(

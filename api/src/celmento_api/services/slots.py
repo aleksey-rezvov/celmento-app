@@ -8,8 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from celmento_api.errors import AppError
 from celmento_api.models.account import Account
-from celmento_api.models.client_card import ClientCard
-from celmento_api.models.enums import ErrorCode, MeetingType, Weekday
+from celmento_api.models.enums import ErrorCode, Weekday
 from celmento_api.models.leader import LeaderProfile
 from celmento_api.models.meeting import Meeting
 from celmento_api.schemas.public import BookingSlotList, Slot
@@ -19,7 +18,10 @@ from celmento_api.services.accounts import (
     effective_working_hours,
     leader_record,
 )
-from celmento_api.services.schedule import planned_end_expression
+from celmento_api.services.schedule import (
+    attended_meeting_query,
+    planned_end_expression,
+)
 
 BOOKING_LEAD: timedelta = timedelta(hours=3)
 BOOKING_HORIZON: timedelta = timedelta(weeks=4)
@@ -90,13 +92,10 @@ async def _busy_intervals(
         Meeting.starts_at < upper, end > lower
     )
     own = intervals.where(Meeting.leader_account_id == account_id)
-    attended = intervals.join(
-        ClientCard,
-        (ClientCard.client_card_id == Meeting.client_card_id)
-        & (ClientCard.leader_account_id == Meeting.leader_account_id),
-    ).where(
-        ClientCard.linked_account_id == account_id,
-        Meeting.type == MeetingType.CLIENT_SESSION.value,
+    attended = (
+        attended_meeting_query(account_id)
+        .with_only_columns(Meeting.starts_at, end)
+        .where(Meeting.starts_at < upper, end > lower)
     )
     rows = await session.execute(own.union_all(attended))
     return [(starts_at, ends_at) for starts_at, ends_at in rows]

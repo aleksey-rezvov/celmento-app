@@ -70,9 +70,10 @@ def test_implemented_operations_match_contract(
             ), label
 
 
-def test_public_calendar_responses_use_calendar_media_type() -> None:
+def test_calendar_responses_use_calendar_media_type() -> None:
     paths = _object(api.openapi()["paths"], "generated paths")
     for path in (
+        "/attended-meetings/{meeting_id}/calendar.ics",
         "/public/bookings/{booking_id}/calendar.ics",
         "/public/specialists/{login}/meet/{meeting_id}/calendar.ics",
     ):
@@ -163,6 +164,7 @@ def test_write_requests_use_named_schemas() -> None:
             "NoteChecklistTicks",
         ),
         ("/public/bookings", "post", "application/json", "GuestBookingCreate"),
+        ("/bookings", "post", "application/json", "AppBookingCreate"),
         (
             "/public/specialists/{login}/meet/{meeting_id}/join",
             "post",

@@ -150,6 +150,7 @@ class AttendedMeeting(BaseModel):
     duration_minutes: DurationMinutes
     place: MeetingPlace
     meeting_link: Uri | None
+    address: str | None = Field(repr=False)
     price: Money
     payment_type: PaymentType
     status: MeetingStatus

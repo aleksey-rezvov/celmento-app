@@ -291,3 +291,20 @@ async def notes_for_client(
             origin,
         )
     )
+
+
+async def notes_shared_by_specialist(
+    session: AsyncSession, viewer: Account, specialist_id: UUID, origin: str
+) -> list[NoteView]:
+    rows = await session.execute(
+        _note_rows()
+        .where(
+            Note.author_account_id == specialist_id,
+            shared_condition(viewer.account_id),
+        )
+        .order_by(Note.updated_at.desc(), Note.note_id.desc())
+        .limit(3)
+    )
+    return await _views(
+        session, viewer.account_id, [(note, author) for note, author in rows], origin
+    )

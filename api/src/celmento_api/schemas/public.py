@@ -67,6 +67,7 @@ class GuestBookingCreate(BaseModel, extra="forbid"):
     contact: TextInput | None = Field(default=None, repr=False)
     comment: TextInput | None = Field(default=None, repr=False)
     place: MeetingPlace | None = None
+    expected_session_format: SessionFormat | None = None
     consents: Annotated[
         list[ConsentAcceptance], Field(json_schema_extra={"minItems": 2})
     ]

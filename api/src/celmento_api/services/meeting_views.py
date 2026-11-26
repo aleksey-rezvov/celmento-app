@@ -29,6 +29,7 @@ from celmento_api.schemas.meetings import (
     Meeting as MeetingView,
 )
 from celmento_api.schemas.money import Money, format_amount
+from celmento_api.services.attended import attended_counts, attended_meetings
 from celmento_api.services.clients import client_view
 from celmento_api.services.outcomes import client_charge, visible_charge_choice
 from celmento_api.services.schedule import (
@@ -154,14 +155,20 @@ async def list_meetings(
     origin: str,
     now: datetime,
 ) -> MeetingList:
+    # spec:impl client-meeting-notifications#keep-attendee-schedule-consistent-bar
+    attended = await attended_meetings(session, leader.account_id, lower, upper, origin)
+    attended_total, specialists_count = await attended_counts(
+        session, leader.account_id
+    )
     if leader.activated_at is None:
+        # spec:impl attended-meetings#show-attended-meetings-account-without-activation
         return MeetingList(
             items=[],
-            attended=[],
+            attended=attended,
             pending_outcomes_count=0,
             next_outcome_in_seconds=None,
-            attended_total=0,
-            specialists_count=0,
+            attended_total=attended_total,
+            specialists_count=specialists_count,
         )
     rows = await session.execute(
         _selection(leader.account_id)
@@ -190,13 +197,13 @@ async def list_meetings(
             meeting_view(meeting, card, zone, leader, origin, now)
             for meeting, card, zone in rows
         ],
-        attended=[],
+        attended=attended,
         pending_outcomes_count=count,
         next_outcome_in_seconds=ceil((next_end - now).total_seconds())
         if next_end
         else None,
-        attended_total=0,
-        specialists_count=0,
+        attended_total=attended_total,
+        specialists_count=specialists_count,
     )
 
 
