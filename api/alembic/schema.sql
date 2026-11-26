@@ -1,4 +1,4 @@
--- Alembic revision: 0006
+-- Alembic revision: 0007
 --
 -- PostgreSQL database dump
 --
@@ -481,6 +481,19 @@ CREATE TABLE public.sign_in_ticket (
 
 
 --
+-- Name: stats_event; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.stats_event (
+    stats_event_id uuid DEFAULT uuidv7() NOT NULL,
+    account_id uuid NOT NULL,
+    kind text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT stats_event_kind_known CHECK ((kind = ANY (ARRAY['limit_hit'::text, 'plans_opened'::text])))
+);
+
+
+--
 -- Name: subscription; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -489,6 +502,25 @@ CREATE TABLE public.subscription (
     until date NOT NULL,
     granted_by text NOT NULL,
     granted_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: subscription_request; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.subscription_request (
+    subscription_request_id uuid DEFAULT uuidv7() NOT NULL,
+    account_id uuid NOT NULL,
+    term text NOT NULL,
+    level text NOT NULL,
+    currency text NOT NULL,
+    source text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT subscription_request_currency_known CHECK ((currency = ANY (ARRAY['RUB'::text, 'EUR'::text]))),
+    CONSTRAINT subscription_request_level_known CHECK ((level = ANY (ARRAY['partner'::text, 'promo'::text, 'base'::text]))),
+    CONSTRAINT subscription_request_source_known CHECK ((source = ANY (ARRAY['limit_screen'::text, 'profile'::text]))),
+    CONSTRAINT subscription_request_term_known CHECK ((term = ANY (ARRAY['month'::text, 'year'::text])))
 );
 
 
@@ -800,11 +832,35 @@ ALTER TABLE ONLY public.sign_in_ticket
 
 
 --
+-- Name: stats_event stats_event_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.stats_event
+    ADD CONSTRAINT stats_event_pkey PRIMARY KEY (stats_event_id);
+
+
+--
 -- Name: subscription subscription_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.subscription
     ADD CONSTRAINT subscription_pkey PRIMARY KEY (account_id);
+
+
+--
+-- Name: subscription_request subscription_request_account_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.subscription_request
+    ADD CONSTRAINT subscription_request_account_id_key UNIQUE (account_id);
+
+
+--
+-- Name: subscription_request subscription_request_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.subscription_request
+    ADD CONSTRAINT subscription_request_pkey PRIMARY KEY (subscription_request_id);
 
 
 --
@@ -1010,6 +1066,27 @@ CREATE INDEX ix_session_account_id ON public.session USING btree (account_id);
 --
 
 CREATE INDEX ix_sign_in_ticket_account_id ON public.sign_in_ticket USING btree (account_id);
+
+
+--
+-- Name: ix_stats_event_account_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_stats_event_account_id ON public.stats_event USING btree (account_id);
+
+
+--
+-- Name: ix_stats_event_kind_created_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_stats_event_kind_created_at ON public.stats_event USING btree (kind, created_at);
+
+
+--
+-- Name: ix_subscription_request_created_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_subscription_request_created_at ON public.subscription_request USING btree (created_at);
 
 
 --
@@ -1275,11 +1352,27 @@ ALTER TABLE ONLY public.sign_in_ticket
 
 
 --
+-- Name: stats_event stats_event_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.stats_event
+    ADD CONSTRAINT stats_event_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.account(account_id) ON DELETE RESTRICT;
+
+
+--
 -- Name: subscription subscription_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.subscription
     ADD CONSTRAINT subscription_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.account(account_id) ON DELETE CASCADE;
+
+
+--
+-- Name: subscription_request subscription_request_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.subscription_request
+    ADD CONSTRAINT subscription_request_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.account(account_id) ON DELETE RESTRICT;
 
 
 --

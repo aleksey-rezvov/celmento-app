@@ -33,6 +33,7 @@ from celmento_api.schemas.documents import AcceptanceRecord
 from celmento_api.schemas.money import format_amount
 from celmento_api.services.logins import require_available_login
 from celmento_api.services.plan_status import plan_status
+from celmento_api.services.plans import stored_subscription_request
 from celmento_api.storage import photo_url
 
 DEFAULT_SESSION_DURATION: int = 60
@@ -100,6 +101,7 @@ def _working_day_view(weekday: Weekday, hours: WorkingHours) -> WorkingDay:
 async def leader_view(session: AsyncSession, account: Account) -> LeaderProfile:
     profile = await leader_record(session, account.account_id)
     days = await effective_working_hours(session, account.account_id)
+    request = await stored_subscription_request(session, account.account_id)
     return LeaderProfile(
         specializations=[Specialization(item) for item in profile.specializations],
         specialization_other=profile.specialization_other,
@@ -121,6 +123,7 @@ async def leader_view(session: AsyncSession, account: Account) -> LeaderProfile:
         else None,
         default_currency=Currency(profile.default_currency or DEFAULT_CURRENCY),
         plan=await plan_status(session, account),
+        subscription_requested_at=request.created_at if request is not None else None,
     )
 
 

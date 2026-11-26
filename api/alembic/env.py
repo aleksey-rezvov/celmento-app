@@ -17,6 +17,7 @@ import_module("celmento_api.models.legal")
 import_module("celmento_api.models.meeting")
 import_module("celmento_api.models.note")
 import_module("celmento_api.models.notice")
+import_module("celmento_api.models.plan")
 import_module("celmento_api.models.preseeded")
 import_module("celmento_api.models.subscription")
 

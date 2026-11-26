@@ -157,6 +157,7 @@ class LeaderProfile(BaseModel):
     default_rate: DecimalAmount | None
     default_currency: Currency
     plan: PlanStatus
+    subscription_requested_at: AwareDatetime | None = None
 
 
 class Account(BaseModel):

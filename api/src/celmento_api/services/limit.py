@@ -15,9 +15,14 @@ from celmento_api.services.account_access import account_date, lock_account
 FREE_PLAN_LIMIT: Final[int] = 3
 
 
+def client_limit_reached(active_cards: int) -> bool:
+    return active_cards >= FREE_PLAN_LIMIT
+
+
 async def active_card_count(session: AsyncSession, leader_id: UUID) -> int:
     # spec:impl free-plan-client-limit#count-limit-active-client-card
     # spec:impl free-plan-client-limit#count-archived-cards-limit
+    # spec:impl free-plan-client-limit#count-restrict-relations-account
     count = await session.scalar(
         select(func.count())
         .select_from(ClientCard)
@@ -32,6 +37,7 @@ async def active_card_count(session: AsyncSession, leader_id: UUID) -> int:
 async def subscription_until(
     session: AsyncSession, account_id: UUID, today: date
 ) -> date | None:
+    # spec:impl free-plan-client-limit#archive-delete-change-client-card
     return await session.scalar(
         select(Subscription.until).where(
             Subscription.account_id == account_id, Subscription.until >= today
@@ -41,6 +47,7 @@ async def subscription_until(
 
 async def ensure_card_can_become_active(session: AsyncSession, leader: Account) -> None:
     # Keep the lock through the caller's card write and transaction commit.
+    # spec:impl free-plan-client-limit#check-limit-before-action-make
     locked = await lock_account(session, leader.account_id, no_key_update=True)
     if locked.activated_at is None:
         raise AppError(403, ErrorCode.ACTIVATION_REQUIRED)
@@ -50,5 +57,8 @@ async def ensure_card_can_become_active(session: AsyncSession, leader: Account) 
         is not None
     ):
         return
-    if await active_card_count(session, locked.account_id) >= FREE_PLAN_LIMIT:
+    # spec:impl free-plan-client-limit#allow-client-card-become-active
+    # spec:impl free-plan-client-limit#make-creating-restoring-new-client
+    # spec:impl free-plan-client-limit#apply-free-plan-limit-after
+    if client_limit_reached(await active_card_count(session, locked.account_id)):
         raise AppError(409, ErrorCode.CLIENT_LIMIT_REACHED)
