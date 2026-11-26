@@ -12,7 +12,7 @@ import {
 } from "react";
 import { useAccount } from "@/lib/account";
 import type { Schemas } from "@/lib/api/client";
-import { useTranslation } from "@/lib/i18n";
+import { useTranslation, type MessageKey } from "@/lib/i18n";
 import { firstCivilDayOfWeek, shiftCivilDay, zonedDay } from "@/lib/zoned-date";
 import { AttendeeEmpty } from "./AttendeeEmpty";
 import { FeedDayRow } from "./FeedDayRow";
@@ -21,6 +21,7 @@ import {
   compareMeetingStarts,
   listScheduledMeetings,
   ScheduleAccessLost,
+  ScheduleOffline,
   scheduleItemKey,
   scheduleItems,
   type MeetingRange,
@@ -84,11 +85,17 @@ export function FeedView({
   const [request, setRequest] = useState<Request>(() => ({
     sequence: 0,
     direction: null,
-    range: { from: shiftCivilDay(initialDay, -14), to: shiftCivilDay(initialDay, 14) },
+    range: {
+      from: shiftCivilDay(initialDay, -14),
+      to: shiftCivilDay(initialDay, 14),
+    },
   }));
   const [window, setWindow] = useState<FeedResult | null>(null);
-  const [failed, setFailed] = useState<number | null>(null);
-  const error = failed === request.sequence;
+  const [failed, setFailed] = useState<{
+    sequence: number;
+    message: MessageKey;
+  } | null>(null);
+  const error = failed?.sequence === request.sequence ? failed.message : null;
   const loading = window?.sequence !== request.sequence && !error;
   const refresh = useCallback((): void => {
     if (loading) return;
@@ -107,6 +114,7 @@ export function FeedView({
       try {
         const snapshot = await listScheduledMeetings(
           request.range,
+          account.time_zone,
           currentSessionToken,
           signal,
           request.direction === null,
@@ -157,12 +165,18 @@ export function FeedView({
           setWindow(null);
           onScheduleLoaded(null);
         }
-        setFailed(request.sequence);
+        setFailed({
+          sequence: request.sequence,
+          message:
+            error instanceof ScheduleOffline
+              ? "extra.meeting_offline"
+              : "extra.auth_request_failed",
+        });
       }
     }
     void load();
     return () => controller.abort();
-  }, [currentSessionToken, leader, onScheduleLoaded, request]);
+  }, [account.time_zone, currentSessionToken, leader, onScheduleLoaded, request]);
 
   const days = useMemo(() => {
     const result = new Map<string, ScheduleItem[]>();
@@ -287,11 +301,16 @@ export function FeedView({
       })}
       {error && (
         <div role="alert" className="schedule-error">
-          <p>{t("extra.auth_request_failed")}</p>
+          <p>{t(error)}</p>
           <button
             className="shell-secondary"
             type="button"
-            onClick={() => setRequest((value) => ({ ...value, sequence: value.sequence + 1 }))}
+            onClick={() =>
+              setRequest((value) => ({
+                ...value,
+                sequence: value.sequence + 1,
+              }))
+            }
           >
             {t("extra.auth_retry")}
           </button>

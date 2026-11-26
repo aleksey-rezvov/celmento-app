@@ -2,6 +2,7 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, type ReactElement } from "react";
+import { OfflineHint } from "@/components/OfflineHint";
 import { MeetingForm } from "@/components/meetings/MeetingForm";
 import { MeetingScreen, meetingPath, meetingsPath } from "@/components/meetings/MeetingScreen";
 import { initialDraft } from "@/components/meetings/meeting-form-values";
@@ -9,7 +10,7 @@ import { useAccount } from "@/lib/account";
 import { apiClient, type Schemas } from "@/lib/api/client";
 import { useTranslation } from "@/lib/i18n";
 import { loadDraft, type MeetingDraft } from "@/lib/meeting-draft";
-import { getSessionToken } from "@/lib/session";
+import { useOnline } from "@/lib/online";
 import { zonedDay, zonedInstant } from "@/lib/zoned-date";
 
 interface LoadedDraft {
@@ -23,7 +24,8 @@ function NewMeeting(): ReactElement {
   const pathname = usePathname();
   const router = useRouter();
   const t = useTranslation();
-  const { account } = useAccount();
+  const { account, currentSessionToken } = useAccount();
+  const online = useOnline();
   const [loaded, setLoaded] = useState<LoadedDraft | null>(null);
   const [attempt, setAttempt] = useState(0);
   const requestedDate = params.get("date");
@@ -36,20 +38,25 @@ function NewMeeting(): ReactElement {
   const defaultCurrency = account.leader?.default_currency ?? "RUB";
   const key = [owner, requestedDate, requestedStart, clientId, resume, attempt].join(":");
   const current = loaded?.key === key ? loaded : null;
+  const ready = Boolean(current?.draft);
 
   useEffect(() => {
-    if (!activated) return;
+    if (!activated || ready || (!online && !resume)) return;
     const controller = new AbortController();
     async function open(): Promise<void> {
+      const token = currentSessionToken();
+      if (!token) return;
       const saved = resume ? loadDraft(owner, pathname) : null;
       if (saved) {
         await Promise.resolve();
-        if (!controller.signal.aborted) setLoaded({ key, draft: saved, resumed: true });
+        if (!controller.signal.aborted && currentSessionToken() === token)
+          setLoaded({ key, draft: saved, resumed: true });
         return;
       }
+      if (!online) return;
 
       try {
-        const client = apiClient(getSessionToken());
+        const client = apiClient(token);
         const selectedStart =
           requestedStart &&
           /(?:Z|[+-]\d\d:\d\d)$/u.test(requestedStart) &&
@@ -84,7 +91,7 @@ function NewMeeting(): ReactElement {
               })
             : null,
         ]);
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || currentSessionToken() !== token) return;
         setLoaded({
           key,
           draft:
@@ -93,7 +100,8 @@ function NewMeeting(): ReactElement {
               : null,
         });
       } catch {
-        if (!controller.signal.aborted) setLoaded({ key, draft: null });
+        if (!controller.signal.aborted && currentSessionToken() === token)
+          setLoaded({ key, draft: null });
       }
     }
 
@@ -102,12 +110,15 @@ function NewMeeting(): ReactElement {
   }, [
     activated,
     clientId,
+    currentSessionToken,
     defaultCurrency,
     defaultDuration,
     defaultLink,
     key,
+    online,
     owner,
     pathname,
+    ready,
     requestedDate,
     requestedStart,
     resume,
@@ -133,6 +144,8 @@ function NewMeeting(): ReactElement {
     <MeetingScreen title={t("meetings.empty_day_cta")}>
       {!account.activated ? (
         <p>{t("extra.meeting_missing")}</p>
+      ) : !online ? (
+        <OfflineHint message="extra.meeting_offline" />
       ) : current ? (
         <>
           <p role="alert">{t("extra.auth_request_failed")}</p>

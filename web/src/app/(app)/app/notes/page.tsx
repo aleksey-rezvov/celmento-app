@@ -37,7 +37,12 @@ function NotesIndex({
   const query = search?.trim() || undefined;
   const showFolders = !clientView && !query && filter !== "shared";
   const folderRequest = useFolders(showFolders);
-  const noteRequest = useNotesList({ filter, clientId, query, enabled: validScope });
+  const noteRequest = useNotesList({
+    filter,
+    clientId,
+    query,
+    enabled: validScope,
+  });
   const folders = folderRequest.data?.items ?? [];
   const notes = noteRequest.data?.items ?? [];
   const title = t("notes.title");
@@ -128,6 +133,8 @@ function NotesIndex({
           ) : notes.length !== 0 || folders.length !== 0 ? null : !query && filter === "shared" ? (
             // spec:impl notes-grid-folders#show-empty-shared-calmness-character
             <EmptyState character="notes_empty_shared" textKey="notes.empty_shared" />
+          ) : query ? (
+            <EmptyState character="notes_not_found" textKey="extra.notes_no_results" />
           ) : (
             <p>{t("extra.notes_no_results")}</p>
           )}

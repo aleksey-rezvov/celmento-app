@@ -15,7 +15,8 @@ import {
 import { DeviceScreen } from "@/components/auth/DeviceScreen";
 import { apiClient, type Schemas } from "./api/client";
 import { LanguageProvider, useTranslation } from "./i18n";
-import { clearSessionToken, getSessionToken, subscribeSession } from "./session";
+import { offlineCache } from "./offline-cache";
+import { getSessionToken, subscribeSession } from "./session";
 
 type Account = Schemas["Account"];
 
@@ -73,27 +74,46 @@ export function AccountProvider({ children }: AccountProviderProps): ReactElemen
     const session = currentSessionToken();
     if (session === null) return;
     const request = ++requestSequence.current;
+    const cache = offlineCache(currentSessionToken);
+    const active = (): boolean =>
+      request === requestSequence.current && currentSessionToken() === session;
 
     const showError = (): void => {
       setSnapshot((previous) =>
         previous?.token === session ? previous : { token: session, account: null },
       );
     };
+    const recover = async (): Promise<void> => {
+      const cached = (await cache)?.account();
+      if (!active()) return;
+      if (cached) setSnapshot({ token: session, account: cached });
+      else showError();
+    };
+
+    if (navigator.onLine === false) {
+      await recover();
+      return;
+    }
 
     try {
-      const { data, response } = await apiClient(session).GET("/account", { cache: "no-store" });
-      if (request !== requestSequence.current || !currentSessionToken()) return;
+      const { data, response } = await apiClient(session).GET("/account", {
+        cache: "no-store",
+      });
+      if (!active()) return;
 
-      if (response.status === 401) {
-        clearSessionToken();
-        setSnapshot(null);
+      if (response.status === 403 || response.status === 404) {
+        setSnapshot({ token: session, account: null });
+        (await cache)?.clear();
       } else if (data) {
+        const stored = await cache;
+        if (!active()) return;
+        stored?.saveAccount(data);
         setSnapshot({ token: session, account: data });
       } else {
         showError();
       }
     } catch {
-      if (request === requestSequence.current && currentSessionToken()) showError();
+      if (active()) await recover();
     }
   }, [currentSessionToken, router, token]);
 
@@ -101,19 +121,21 @@ export function AccountProvider({ children }: AccountProviderProps): ReactElemen
     async (next?: Account): Promise<void> => {
       if (next) {
         const session = currentSessionToken();
-        if (session === null) return;
-        requestSequence.current += 1;
+        if (session === null || account?.id !== next.id) return;
+        const request = ++requestSequence.current;
         setSnapshot((previous) =>
           previous?.token === session && previous.account?.id === next.id
             ? { token: session, account: next }
             : previous,
         );
+        const cache = await offlineCache(currentSessionToken);
+        if (request === requestSequence.current) cache?.saveAccount(next);
         return;
       }
 
       await reloadAccount();
     },
-    [currentSessionToken, reloadAccount],
+    [account?.id, currentSessionToken, reloadAccount],
   );
 
   useEffect(() => {
@@ -121,9 +143,14 @@ export function AccountProvider({ children }: AccountProviderProps): ReactElemen
     queueMicrotask(() => {
       if (active) void reloadAccount();
     });
+    function reconnect(): void {
+      void reloadAccount();
+    }
+    window.addEventListener("online", reconnect);
     return () => {
       active = false;
       requestSequence.current += 1;
+      window.removeEventListener("online", reconnect);
     };
   }, [reloadAccount]);
 

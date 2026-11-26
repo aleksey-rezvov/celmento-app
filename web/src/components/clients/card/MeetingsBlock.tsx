@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactElement } from "react";
+import { Character } from "@/components/Character";
 import { meetingPath } from "@/components/meetings/MeetingScreen";
 import { useAppNavigation } from "@/components/shell/navigation";
 import { useAccount } from "@/lib/account";
@@ -70,7 +71,12 @@ export function ClientMeetingRows({
     );
   const { upcoming, past } = current.data;
   if (!upcoming.length && !past.length)
-    return <p className="client-hint">{t("client.no_meetings")}</p>;
+    return (
+      <div className="character-panel client-meetings-empty">
+        <Character state="client_no_meetings" size={200} />
+        <p className="client-hint">{t("client.no_meetings")}</p>
+      </div>
+    );
 
   function rows(items: Meeting[], showOutcome: boolean): ReactElement {
     return (

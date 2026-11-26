@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAccount } from "@/lib/account";
 import { apiClient, type Schemas } from "@/lib/api/client";
 import type { MessageKey } from "@/lib/i18n";
-import { getSessionToken } from "@/lib/session";
+import { offlineCache, type OfflineCache } from "@/lib/offline-cache";
 
 type NoteRequest<T> = (
   token: string,
@@ -23,12 +23,19 @@ interface NotesRequestState<T> {
   retry: () => void;
 }
 
+interface NotesCache<T> {
+  read: (cache: OfflineCache) => T | null;
+  save: (cache: OfflineCache, data: T) => void;
+  remove: (cache: OfflineCache) => void;
+}
+
 function useNotesRequest<T>(
   request: NoteRequest<T>,
   enabled: boolean,
   delayMs = 0,
+  stored?: NotesCache<T>,
 ): NotesRequestState<T> {
-  const { account } = useAccount();
+  const { account, currentSessionToken } = useAccount();
   const accountId = account.id;
   const [result, setResult] = useState<Result<T> | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -43,23 +50,52 @@ function useNotesRequest<T>(
   useEffect(() => {
     if (!enabled) return;
 
-    const token = getSessionToken();
+    const token = currentSessionToken();
+    if (!token) return;
+    const cache = stored ? offlineCache(currentSessionToken) : null;
     const identity = { accountId, attempt, request };
     let pending: AbortController | null = null;
     let loaded = false;
 
+    function active(signal: AbortSignal): boolean {
+      return !signal.aborted && currentSessionToken() === token;
+    }
+
+    async function recover(signal: AbortSignal): Promise<void> {
+      const saved = await cache;
+      if (loaded || !active(signal)) return;
+      const data = saved && stored?.read(saved);
+      if (data) {
+        loaded = true;
+        setResult({ ...identity, data });
+      } else {
+        setResult({
+          ...identity,
+          error: navigator.onLine === false ? "extra.note_offline" : "extra.auth_network_error",
+        });
+      }
+    }
+
     async function load(): Promise<void> {
-      if (!token || pending) return;
+      if (!token || pending || currentSessionToken() !== token) return;
       const controller = new AbortController();
       pending = controller;
+      const { signal } = controller;
       try {
-        const { data, response } = await request(token, controller.signal);
-        if (controller.signal.aborted || getSessionToken() !== token) return;
+        if (navigator.onLine === false) {
+          await recover(signal);
+          return;
+        }
+        const { data, response } = await request(token, signal);
+        const saved = await cache;
+        if (!active(signal)) return;
 
         if (data) {
+          if (saved) stored?.save(saved, data);
           loaded = true;
           setResult({ ...identity, data });
         } else if (!loaded || [401, 403, 404, 422].includes(response.status)) {
+          if (saved && [401, 403, 404, 422].includes(response.status)) stored?.remove(saved);
           loaded = false;
           setResult({
             ...identity,
@@ -67,9 +103,7 @@ function useNotesRequest<T>(
           });
         }
       } catch {
-        if (!loaded && !controller.signal.aborted && getSessionToken() === token) {
-          setResult({ ...identity, error: "extra.auth_network_error" });
-        }
+        if (active(signal)) await recover(signal);
       } finally {
         pending = null;
       }
@@ -93,7 +127,7 @@ function useNotesRequest<T>(
       document.removeEventListener("visibilitychange", revalidate);
       pending?.abort();
     };
-  }, [accountId, attempt, delayMs, enabled, request]);
+  }, [accountId, attempt, currentSessionToken, delayMs, enabled, request, stored]);
 
   return {
     data: current && "data" in current ? current.data : null,
@@ -109,8 +143,14 @@ const loadFolders: NoteRequest<Schemas["FolderList"]> = async (token, signal) =>
   return apiClient(token).GET("/folders", { signal, cache: "no-store" });
 };
 
+const cachedFolders: NotesCache<Schemas["FolderList"]> = {
+  read: (cache) => cache.folders(),
+  save: (cache, data) => cache.saveFolders(data),
+  remove: (cache) => cache.removeFolders(),
+};
+
 export function useFolders(enabled = true): NotesRequestState<Schemas["FolderList"]> {
-  return useNotesRequest(loadFolders, enabled);
+  return useNotesRequest(loadFolders, enabled, 0, cachedFolders);
 }
 
 interface NoteListScope {
@@ -128,6 +168,18 @@ export function useNotesList({
   query,
   enabled = true,
 }: NoteListScope): NotesRequestState<Schemas["NoteList"]> {
+  const cacheKey = query ? null : JSON.stringify([filter ?? "all", folderId, clientId]);
+  const stored = useMemo<NotesCache<Schemas["NoteList"]> | undefined>(
+    () =>
+      cacheKey === null
+        ? undefined
+        : {
+            read: (cache) => cache.noteList(cacheKey),
+            save: (cache, data) => cache.saveNoteList(cacheKey, data),
+            remove: (cache) => cache.removeNoteList(cacheKey),
+          },
+    [cacheKey],
+  );
   const request = useCallback<NoteRequest<Schemas["NoteList"]>>(
     async (token, signal) => {
       // spec:impl notes-grid-folders#sort-grid-modified-date-newest
@@ -148,7 +200,7 @@ export function useNotesList({
     },
     [clientId, filter, folderId, query],
   );
-  return useNotesRequest(request, enabled, query ? 160 : 0);
+  return useNotesRequest(request, enabled, query ? 160 : 0, stored);
 }
 
 export function useClientNotes(clientId: string): NotesRequestState<Schemas["ClientNoteList"]> {

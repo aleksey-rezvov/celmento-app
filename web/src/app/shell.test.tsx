@@ -1,12 +1,14 @@
+import { createHash, webcrypto } from "node:crypto";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ComponentPropsWithoutRef, ReactElement } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { NoticeBar } from "@/components/NoticeBar";
 import { useNavigationGuard } from "@/components/shell/navigation";
 import { AccountProvider, useAccount } from "@/lib/account";
-import type { Schemas } from "@/lib/api/client";
+import { apiClient, type Schemas } from "@/lib/api/client";
 import { t } from "@/lib/i18n";
-import { getSessionToken, setSessionToken } from "@/lib/session";
+import { offlineCache } from "@/lib/offline-cache";
+import { clearSessionToken, getSessionToken, setSessionToken } from "@/lib/session";
 import AppLayout from "./(app)/app/layout";
 import Meetings from "./(app)/app/meetings/page";
 import Notes from "./(app)/app/notes/page";
@@ -225,6 +227,40 @@ test("clears a rejected token and returns to sign-in", async () => {
   await waitFor(() => expect(navigation.router.replace).toHaveBeenCalledWith("/login"));
   expect(getSessionToken()).toBeNull();
   expect(screen.queryByRole("navigation")).toBeNull();
+});
+
+test("retires cached data on an authenticated 401 only for the session that received it", async () => {
+  vi.stubGlobal("crypto", webcrypto);
+  const unauthorized = () => json({ code: "unauthorized" }, 401);
+  const rejected = deferred<Response>();
+  setSessionToken(token);
+  mockApi((request) =>
+    request.headers.get("Authorization") === "Bearer " + token
+      ? rejected.promise
+      : json({ code: "forbidden" }, 403),
+  );
+  const pending = apiClient(token).GET("/notices");
+  const replacement = "new-session-for-expiry";
+  setSessionToken(replacement);
+  const snapshot = await offlineCache(getSessionToken);
+  snapshot?.saveAccount(accountFor());
+  expect(snapshot?.account()?.id).toBe(accountFor().id);
+
+  rejected.resolve(unauthorized());
+  expect((await pending).response.status).toBe(401);
+  expect(getSessionToken()).toBe(replacement);
+  expect((await apiClient(replacement).GET("/notices")).response.status).toBe(403);
+  expect(snapshot?.account()?.id).toBe(accountFor().id);
+
+  mockApi(unauthorized);
+  expect((await apiClient(replacement).GET("/notices")).response.status).toBe(401);
+  expect(getSessionToken()).toBeNull();
+  const key =
+    "celmento-offline-v1:" +
+    createHash("sha256")
+      .update("world\n" + replacement)
+      .digest("hex");
+  await waitFor(() => expect(localStorage.getItem(key)).toBeNull());
 });
 
 // spec:test mobile-app-shell#open-meetings-tab-leader-people
@@ -482,6 +518,88 @@ test("switches the protected view to the current session and ignores the previou
   });
   expect(screen.queryByText(after.first_name)).toBeNull();
   expect(navigation.router.replace).toHaveBeenCalledWith("/login");
+});
+
+test("boots a previously authorized shell offline and retires only the replaced or signed-out scope", async () => {
+  vi.stubGlobal("crypto", webcrypto);
+  const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(true);
+  const secondToken = "second-offline-shell-session";
+  const worldAccount = { ...accountFor(), first_name: "Saved world account" };
+  const ruAccount = { ...accountFor(), contour: "ru", first_name: "Saved ru account" } as const;
+  const nextAccount = { ...accountFor(), id: "other-owner", first_name: "New account" };
+  const requests = mockApi((request) => {
+    if (request.headers.get("Authorization") === "Bearer " + secondToken) return json(nextAccount);
+    return json(process.env.NEXT_PUBLIC_CLM_APP_CONTOUR === "ru" ? ruAccount : worldAccount);
+  });
+
+  function VisibleAccount(): ReactElement {
+    const { account } = useAccount();
+    return <p>{account.first_name}</p>;
+  }
+
+  function mount(): ReturnType<typeof render> {
+    return render(atPath("/app", <VisibleAccount />));
+  }
+
+  function snapshotKey(contour: "world" | "ru", bearer: string): string {
+    return (
+      "celmento-offline-v1:" +
+      createHash("sha256")
+        .update(contour + "\n" + bearer)
+        .digest("hex")
+    );
+  }
+
+  setSessionToken(token);
+  const worldKey = snapshotKey("world", token);
+  const ruKey = snapshotKey("ru", token);
+  const secondKey = snapshotKey("world", secondToken);
+  const warm = mount();
+  await screen.findByText(worldAccount.first_name);
+  expect(localStorage.getItem(worldKey)).toContain(worldAccount.first_name);
+  expect(localStorage.getItem(worldKey)).not.toContain(token);
+  warm.unmount();
+
+  online.mockReturnValue(false);
+  const cold = mount();
+  await screen.findByText(worldAccount.first_name);
+  expect(requests).toHaveLength(1);
+  cold.unmount();
+
+  vi.stubEnv("NEXT_PUBLIC_CLM_APP_CONTOUR", "ru");
+  const separateContour = mount();
+  await screen.findByText(t("extra.auth_request_failed"));
+  expect(screen.queryByText(worldAccount.first_name)).toBeNull();
+  expect(requests).toHaveLength(1);
+  await act(async () => {
+    online.mockReturnValue(true);
+    window.dispatchEvent(new Event("online"));
+  });
+  await screen.findByText(ruAccount.first_name);
+  expect(localStorage.getItem(ruKey)).toContain(ruAccount.first_name);
+  separateContour.unmount();
+
+  vi.stubEnv("NEXT_PUBLIC_CLM_APP_CONTOUR", "world");
+  online.mockReturnValue(false);
+  setSessionToken(secondToken);
+  mount();
+  await screen.findByText(t("extra.auth_request_failed"));
+  expect(screen.queryByText(worldAccount.first_name)).toBeNull();
+  await waitFor(() => expect(localStorage.getItem(worldKey)).toBeNull());
+  expect(localStorage.getItem(ruKey)).toContain(ruAccount.first_name);
+  expect(requests).toHaveLength(2);
+
+  await act(async () => {
+    online.mockReturnValue(true);
+    window.dispatchEvent(new Event("online"));
+  });
+  await screen.findByText(nextAccount.first_name);
+  expect(localStorage.getItem(secondKey)).toContain(nextAccount.first_name);
+  await act(async () => clearSessionToken());
+  await waitFor(() => expect(localStorage.getItem(secondKey)).toBeNull());
+  expect(localStorage.getItem(ruKey)).toContain(ruAccount.first_name);
+  expect(screen.queryByText(nextAccount.first_name)).toBeNull();
+  expect(navigation.router.replace).toHaveBeenLastCalledWith("/login");
 });
 
 interface GuardedPageProps {

@@ -1,6 +1,7 @@
 import { apiClient, type Schemas } from "@/lib/api/client";
 import type { operations } from "@/lib/api/schema";
 import { listAccountNotices } from "@/lib/notices";
+import { offlineCache } from "@/lib/offline-cache";
 import { zonedClock } from "@/lib/zoned-date";
 
 export type MeetingRange = operations["listMeetings"]["parameters"]["query"];
@@ -16,6 +17,7 @@ interface ScheduleSnapshot {
 export type OnScheduleLoaded = (snapshot: ScheduleSnapshot | null) => void;
 
 export class ScheduleAccessLost extends Error {}
+export class ScheduleOffline extends Error {}
 
 const noticeDeadlineMs = 500;
 
@@ -41,27 +43,54 @@ async function readTimelyNotices(
 
 export async function listScheduledMeetings(
   range: MeetingRange,
+  timeZone: string,
   currentSessionToken: () => string | null,
   signal: AbortSignal,
   includeNotices = true,
 ): Promise<ScheduleSnapshot> {
   const token = currentSessionToken();
   if (!token) throw new ScheduleAccessLost("No active schedule session.");
+  const cache = offlineCache(currentSessionToken);
+
+  function requireSession(): void {
+    signal.throwIfAborted();
+    if (currentSessionToken() !== token) throw new ScheduleAccessLost("The session has changed.");
+  }
+
+  // spec:impl schedule-day-view#keep-showing-last-loaded-meetings
+  async function recoverSchedule(): Promise<ScheduleSnapshot> {
+    const saved = await cache;
+    requireSession();
+    const schedule = saved?.meetings(range, timeZone);
+    if (!schedule) throw new ScheduleOffline("No previously loaded meetings for this range.");
+    return { schedule, notices: null };
+  }
+
+  if (navigator.onLine === false) return recoverSchedule();
 
   // spec:impl client-meeting-notifications#keep-attendee-schedule-consistent-bar
   const notices = includeNotices ? await readTimelyNotices(token, signal) : null;
-  signal.throwIfAborted();
-  if (currentSessionToken() !== token) throw new ScheduleAccessLost("The session has changed.");
+  requireSession();
 
-  const { data, response } = await apiClient(token).GET("/meetings", {
-    params: { query: range },
-    signal,
-    cache: "no-store",
-  });
-  if (currentSessionToken() !== token || response.status === 401 || response.status === 403)
+  const result = await apiClient(token)
+    .GET("/meetings", {
+      params: { query: range },
+      signal,
+      cache: "no-store",
+    })
+    .catch(() => null);
+  requireSession();
+  if (!result) return recoverSchedule();
+  const { data, response } = result;
+  if ([401, 403, 404].includes(response.status)) {
+    (await cache)?.removeMeetings();
     throw new ScheduleAccessLost("Schedule access has ended.");
+  }
   if (!data) throw new Error("The schedule could not be loaded.");
 
+  const storage = await cache;
+  requireSession();
+  storage?.saveMeetings(range, timeZone, data);
   return { schedule: data, notices };
 }
 

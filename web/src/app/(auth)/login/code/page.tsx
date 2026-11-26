@@ -212,7 +212,7 @@ function CodeForm({ initialCode }: CodeFormProps): ReactElement {
     <AuthCard
       title={title}
       subtitle={subtitle}
-      illustration={invalid || locked ? "code_error" : "code"}
+      illustration={notice === "code.error" || notice === "code.locked" ? "code_error" : "code"}
     >
       <div className="auth-form">
         <CodeInput

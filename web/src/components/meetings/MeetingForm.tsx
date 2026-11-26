@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent, type ReactElement } from "react";
+import { OfflineHint } from "@/components/OfflineHint";
 import { ClientForm } from "@/components/clients/ClientForm";
 import { isZeroClientRate, PaymentTypeChips } from "@/components/clients/PaymentTypeChips";
 import { currencies, currencyOptions } from "@/components/profile/profile-edit";
@@ -17,8 +18,8 @@ import { activeClientLimitReached, limitScreenHref } from "@/lib/limit";
 import { putMeetingOutcome } from "@/lib/meeting-api";
 import { clearDraft, saveDraft, type MeetingDraft } from "@/lib/meeting-draft";
 import { isArchivedClientMeeting, meetingTypeLabels } from "@/lib/meeting-display";
+import { useOnline } from "@/lib/online";
 import { useCurrentInstant } from "@/lib/schedule-view";
-import { getSessionToken } from "@/lib/session";
 import { zonedDay } from "@/lib/zoned-date";
 import { ClientPicker } from "./ClientPicker";
 import { DurationField, minutes } from "./DurationField";
@@ -125,12 +126,16 @@ export function MeetingForm({
   const t = useTranslation();
   const language = useLanguage();
   const now = useCurrentInstant();
-  const { account } = useAccount();
+  const { account, currentSessionToken } = useAccount();
+  const online = useOnline();
   const router = useRouter();
   const idempotency = useIdempotencyKey();
   const [draft, setDraft] = useState(initial);
   const [dialog, setDialog] = useState<"pick" | "new" | null>(null);
-  const [overlap, setOverlap] = useState<{ details: Overlap; body: Create } | null>(null);
+  const [overlap, setOverlap] = useState<{
+    details: Overlap;
+    body: Create;
+  } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<MessageKey | null>(null);
   const [partial, setPartial] = useState<PartialSave | null>(null);
@@ -191,35 +196,42 @@ export function MeetingForm({
   }, [focusDate]);
 
   useEffect(() => {
-    if (!lookupKey) return;
+    if (!lookupKey || !online) return;
 
     const controller = new AbortController();
-    const token = getSessionToken();
+    const token = currentSessionToken();
+    if (!token) return;
     const key = lookupKey;
     async function loadCurrency(): Promise<void> {
       try {
         // spec:impl meeting-form#default-currency-personal-therapy
         const { data } = await apiClient(token).GET("/meetings/defaults", {
-          params: { query: { date: draft.date, with_whom: withWhom || undefined } },
+          params: {
+            query: { date: draft.date, with_whom: withWhom || undefined },
+          },
           signal: controller.signal,
           cache: "no-store",
         });
-        if (controller.signal.aborted || getSessionToken() !== token) return;
+        if (controller.signal.aborted || currentSessionToken() !== token) return;
         setLookup(
           data
             ? { key, state: "ready", currency: data.currency }
             : { key, state: "failed", error: "extra.auth_request_failed" },
         );
       } catch {
-        if (!controller.signal.aborted && getSessionToken() === token) {
-          setLookup({ key, state: "failed", error: "extra.auth_network_error" });
+        if (!controller.signal.aborted && currentSessionToken() === token) {
+          setLookup({
+            key,
+            state: "failed",
+            error: "extra.auth_network_error",
+          });
         }
       }
     }
 
     void loadCurrency();
     return () => controller.abort();
-  }, [draft.date, lookupKey, withWhom]);
+  }, [currentSessionToken, draft.date, lookupKey, online, withWhom]);
 
   function selectType(type: Type): void {
     if (type === draft.type || fixedType) return;
@@ -274,7 +286,11 @@ export function MeetingForm({
     }
     current.searchParams.set("resume", "1");
     setDialog(null);
-    router.push(limitScreenHref("new_client", { returnTo: current.pathname + current.search }));
+    router.push(
+      limitScreenHref("new_client", {
+        returnTo: current.pathname + current.search,
+      }),
+    );
   }
 
   function newClient(): void {
@@ -285,17 +301,20 @@ export function MeetingForm({
   }
 
   async function save(payload: Create | null = body, allowOverlap = false): Promise<boolean> {
-    if (!payload || busy || end === null) return false;
+    if (busy) return false;
     // spec:impl meeting-form#refuse-save-new-changed-meeting
-    if (!navigator.onLine) {
-      setError("extra.auth_network_error");
+    if (navigator.onLine === false) {
+      setOverlap(null);
+      setError("extra.meeting_offline");
       return false;
     }
+    const token = currentSessionToken();
+    if (!payload || end === null || !token) return false;
     const next = { ...payload, allow_overlap: allowOverlap };
     setError(null);
     setBusy(true);
     try {
-      const api = apiClient(getSessionToken());
+      const api = apiClient(token);
       let saved: Detail | null = null;
       if (savedMeeting) {
         const { outcome, type, client_id, ...fields } = next;
@@ -310,6 +329,7 @@ export function MeetingForm({
             params: { path: { meeting_id: savedMeeting.id } },
             body: update,
           });
+          if (currentSessionToken() !== token) return false;
           if (result.data) saved = result.data;
           else {
             const details =
@@ -323,13 +343,19 @@ export function MeetingForm({
         if (saved && outcome) {
           setOverlap(null);
           setPartial({ meeting: saved, detailsKey: key });
-          saved = await putMeetingOutcome(saved.id, outcome);
+          if (!navigator.onLine) {
+            setError("extra.meeting_offline");
+            return false;
+          }
+          saved = await putMeetingOutcome(saved.id, outcome, token);
+          if (currentSessionToken() !== token) return false;
         }
       } else {
         const result = await api.POST("/meetings", {
           params: { header: { "Idempotency-Key": idempotency.keyFor(next) } },
           body: next,
         });
+        if (currentSessionToken() !== token) return false;
         if (result.data) {
           saved = result.data;
           idempotency.clear();
@@ -350,7 +376,10 @@ export function MeetingForm({
       onSaved(saved);
       return true;
     } catch {
-      setError("extra.auth_network_error");
+      if (currentSessionToken() === token) {
+        setOverlap(null);
+        setError(navigator.onLine ? "extra.auth_network_error" : "extra.meeting_offline");
+      }
       return false;
     } finally {
       setBusy(false);
@@ -551,7 +580,10 @@ export function MeetingForm({
                   <ChoiceChips
                     label={t("form.currency")}
                     value={currency}
-                    options={currencyOptions.map((value) => ({ value, label: currencies[value] }))}
+                    options={currencyOptions.map((value) => ({
+                      value,
+                      label: currencies[value],
+                    }))}
                     onChange={(currency) => setDraft({ ...draft, currency, currencyPicked: true })}
                   />
                   {currentLookup?.state === "failed" && (
@@ -597,7 +629,10 @@ export function MeetingForm({
                 <strong>{t("form.outcome_block")}</strong>
                 <ChoiceChips
                   label={t("form.outcome_block")}
-                  options={outcomeOptions.map(({ value, label }) => ({ value, label: t(label) }))}
+                  options={outcomeOptions.map(({ value, label }) => ({
+                    value,
+                    label: t(label),
+                  }))}
                   value={draft.outcome?.status ?? null}
                   onChange={(status) =>
                     setDraft({
@@ -627,6 +662,9 @@ export function MeetingForm({
             </div>
           )}
         </fieldset>
+        {!online && !error && (
+          <OfflineHint className="meeting-error" message="extra.meeting_offline" />
+        )}
         {error && !overlap && (
           <p role="alert" className="meeting-error">
             {t(error)}

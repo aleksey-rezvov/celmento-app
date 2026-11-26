@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { useAccount } from "@/lib/account";
 import type { Schemas } from "@/lib/api/client";
-import { useTranslation } from "@/lib/i18n";
+import { useTranslation, type MessageKey } from "@/lib/i18n";
 import { DayView } from "./DayView";
 import {
   listScheduledMeetings,
   ScheduleAccessLost,
+  ScheduleOffline,
   scheduleItems,
   type OnScheduleLoaded,
 } from "./schedule-data";
@@ -31,9 +32,9 @@ export function DaySchedule({
   ...view
 }: DayScheduleProps): ReactElement {
   const t = useTranslation();
-  const { currentSessionToken } = useAccount();
+  const { account, currentSessionToken } = useAccount();
   const [schedule, setSchedule] = useState<Schemas["MeetingList"] | null>(null);
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState<MessageKey | null>(null);
   const [attempt, setAttempt] = useState(0);
   const loading = useRef(false);
   const refresh = useCallback(() => {
@@ -45,12 +46,17 @@ export function DaySchedule({
     const controller = new AbortController();
     const { signal } = controller;
     loading.current = true;
-    void listScheduledMeetings({ from: day, to: day }, currentSessionToken, signal)
+    void listScheduledMeetings(
+      { from: day, to: day },
+      account.time_zone,
+      currentSessionToken,
+      signal,
+    )
       .then(
         (snapshot) => {
           if (signal.aborted) return;
           setSchedule(snapshot.schedule);
-          setFailed(false);
+          setFailed(null);
           onScheduleLoaded(snapshot);
         },
         (error: unknown) => {
@@ -59,14 +65,18 @@ export function DaySchedule({
             setSchedule(null);
             onScheduleLoaded(null);
           }
-          setFailed(true);
+          setFailed(
+            error instanceof ScheduleOffline
+              ? "extra.meeting_offline"
+              : "extra.auth_request_failed",
+          );
         },
       )
       .finally(() => {
         if (!signal.aborted) loading.current = false;
       });
     return () => controller.abort();
-  }, [attempt, currentSessionToken, day, onScheduleLoaded]);
+  }, [account.time_zone, attempt, currentSessionToken, day, onScheduleLoaded]);
 
   const meetings = useMemo(
     () => (schedule ? scheduleItems(schedule, leader) : []),
@@ -77,7 +87,7 @@ export function DaySchedule({
     <>
       {failed && (
         <div role="alert" className="schedule-error">
-          <p>{t("extra.auth_request_failed")}</p>
+          <p>{t(failed)}</p>
           <button className="shell-secondary" type="button" onClick={refresh}>
             {t("extra.auth_retry")}
           </button>

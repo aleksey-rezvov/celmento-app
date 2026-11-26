@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
+import { OfflineHint } from "@/components/OfflineHint";
 import { Sheet } from "@/components/shell/Sheet";
 import { useAppNavigation, useNavigationGuard } from "@/components/shell/navigation";
 import { useAccount } from "@/lib/account";
@@ -14,7 +15,7 @@ import {
   toggleAuthorItem,
   type NoteFormat,
 } from "@/lib/note-text";
-import { getSessionToken } from "@/lib/session";
+import { offlineCache } from "@/lib/offline-cache";
 import { ChecklistText } from "./ChecklistText";
 import { FormattingBar } from "./FormattingBar";
 import { NoteFrame } from "./NoteFrame";
@@ -31,11 +32,12 @@ interface NoteEditorProps {
   folderId?: string | null;
   back: string;
   context?: string;
+  readOnly?: boolean;
 }
 
 export function NoteEditor(props: NoteEditorProps): ReactElement {
   return props.initial && !props.initial.can_edit ? (
-    <ReceivedNote initial={props.initial} back={props.back} />
+    <ReceivedNote initial={props.initial} back={props.back} readOnly={props.readOnly} />
   ) : (
     <OwnedNote {...props} />
   );
@@ -47,9 +49,10 @@ function OwnedNote({
   folderId = null,
   back,
   context = "",
+  readOnly = false,
 }: NoteEditorProps): ReactElement {
   const t = useTranslation();
-  const { account } = useAccount();
+  const { account, currentSessionToken } = useAccount();
   const navigate = useAppNavigation();
   const router = useRouter();
   const { note, draft, dirty, error, online, flush, change, accept } = useNoteAutosave(
@@ -57,6 +60,7 @@ function OwnedNote({
     initial ?? null,
     firstLine,
     folderId,
+    readOnly,
   );
   const [menu, setMenu] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -93,13 +97,21 @@ function OwnedNote({
         }
         // spec:impl note-editor#keep-note-closed-empty-title
         if (!initial && saved && !hasNoteContent(saved, firstLine)) {
-          const { response } = await apiClient(getSessionToken()).DELETE("/notes/{note_id}", {
+          const token = currentSessionToken();
+          if (!token || !online || navigator.onLine === false) {
+            setLeave(() => proceed);
+            return;
+          }
+          const { response } = await apiClient(token).DELETE("/notes/{note_id}", {
             params: { path: { note_id: saved.id } },
           });
+          if (currentSessionToken() !== token) return;
           if (response.status !== 204 && response.status !== 404) {
             setActionError(true);
             return;
           }
+          const cache = await offlineCache(currentSessionToken);
+          cache?.removeNote(saved.id);
         }
         proceed();
       } catch {
@@ -109,7 +121,7 @@ function OwnedNote({
         setWorking(false);
       }
     },
-    [firstLine, flush, initial],
+    [currentSessionToken, firstLine, flush, initial, online],
   );
 
   const guard = useCallback(
@@ -145,23 +157,28 @@ function OwnedNote({
   }
 
   async function removeNote(): Promise<void> {
-    if (operation.current || !online) return;
+    const token = currentSessionToken();
+    if (!token || operation.current || !online || navigator.onLine === false) return;
     operation.current = true;
     setWorking(true);
     setActionError(false);
     try {
       const saved = await flush();
-      if (saved === false) return;
+      if (saved === false || currentSessionToken() !== token || !navigator.onLine) return;
       if (saved) {
         // spec:impl note-editor#ask-delete-confirm-after-delete
-        const { response } = await apiClient(getSessionToken()).DELETE("/notes/{note_id}", {
+        const { response } = await apiClient(token).DELETE("/notes/{note_id}", {
           params: { path: { note_id: saved.id } },
         });
+        if (currentSessionToken() !== token) return;
         if (response.status !== 204 && response.status !== 404) {
           setActionError(true);
           return;
         }
+        const cache = await offlineCache(currentSessionToken);
+        cache?.removeNote(saved.id);
       }
+      if (currentSessionToken() !== token) return;
       router.replace(back);
     } catch {
       setActionError(true);
@@ -172,31 +189,34 @@ function OwnedNote({
   }
 
   async function removeAccess(selected: Tag): Promise<void> {
-    if (!note || operation.current || !writable) return;
+    const token = currentSessionToken();
+    if (!token || !note || operation.current || !writable || navigator.onLine === false) return;
     operation.current = true;
     setWorking(true);
     setActionError(false);
     try {
       const saved = await flush();
-      if (!saved) return;
-      const token = getSessionToken();
+      if (!saved || currentSessionToken() !== token || !navigator.onLine) return;
       const api = apiClient(token);
       // spec:impl note-sharing-tags#offer-remove-access-author-taps-tagged
       const { response } = await api.DELETE("/notes/{note_id}/tags/{tag_id}", {
         params: { path: { note_id: saved.id, tag_id: selected.id } },
       });
-      if (getSessionToken() !== token) return;
+      if (currentSessionToken() !== token) return;
       if (response.status !== 204 && response.status !== 404) {
         setActionError(true);
         return;
       }
-      accept({ ...saved, tags: saved.tags.filter(({ id }) => id !== selected.id) });
+      accept({
+        ...saved,
+        tags: saved.tags.filter(({ id }) => id !== selected.id),
+      });
       setTag(null);
       const result = await api.GET("/notes/{note_id}", {
         params: { path: { note_id: saved.id } },
         cache: "no-store",
       });
-      if (getSessionToken() === token && result.data) accept(result.data);
+      if (currentSessionToken() === token && result.data) accept(result.data);
     } catch {
       setActionError(true);
     } finally {
@@ -233,7 +253,10 @@ function OwnedNote({
   function formatText(format: NoteFormat): void {
     const position = field.current
       ? { start: field.current.selectionStart, end: field.current.selectionEnd }
-      : (selection.current ?? { start: draft.text.length, end: draft.text.length });
+      : (selection.current ?? {
+          start: draft.text.length,
+          end: draft.text.length,
+        });
     const next = formatNoteSelection(draft.text, position.start, position.end, format);
     if (changeText(next.text)) focusText(next.start, next.end);
   }
@@ -255,11 +278,7 @@ function OwnedNote({
         onClose={close}
         notice={
           <>
-            {!online && (
-              <p className="note-notice" role="status">
-                {t("extra.note_offline")}
-              </p>
-            )}
+            {!online && <OfflineHint className="note-notice" message="extra.note_offline" />}
             {tooLong && (
               <p className="note-notice" role="alert">
                 {t("note.too_long")}

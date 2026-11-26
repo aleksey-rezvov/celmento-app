@@ -7,7 +7,9 @@ import MeetingPage from "./(app)/app/meetings/[id]/page";
 import MoveNotePage from "./(app)/app/notes/[id]/move/page";
 import NotePage from "./(app)/app/notes/[id]/page";
 import TagNotePage from "./(app)/app/notes/[id]/tag/page";
+import FolderPage from "./(app)/app/notes/folders/[id]/page";
 import NewNotePage from "./(app)/app/notes/new/page";
+import Notes from "./(app)/app/notes/page";
 import { AppNavigationProvider } from "@/components/shell/navigation";
 import { AccountProvider } from "@/lib/account";
 import type { Schemas } from "@/lib/api/client";
@@ -278,6 +280,16 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   return { promise, resolve };
 }
 
+function simulateConnection(): (connected: boolean) => Promise<void> {
+  const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(true);
+  return async (connected) => {
+    await act(async () => {
+      online.mockReturnValue(connected);
+      window.dispatchEvent(new Event(connected ? "online" : "offline"));
+    });
+  };
+}
+
 beforeAll(() => {
   HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
     this.open = true;
@@ -304,6 +316,250 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
+
+// spec:test note-editor#open-notes-read-only-no-connection-hint
+test("reopens a previously loaded folder note offline after reading the empty root list online", async () => {
+  const root = "/app/notes";
+  const folder = root + "/folders/" + ids.folder;
+  const detail = noteHref + "?folder_id=" + ids.folder;
+  const saved = note({ title: "Private folder note", folder_id: ids.folder });
+  const requests = setup(
+    (request, path) => {
+      if (request.method === "GET" && path === "/notes") {
+        const insideFolder = new URL(request.url).searchParams.get("folder_id") === ids.folder;
+        return json(insideFolder ? { items: [saved], total: 1 } : { items: [], total: 0 });
+      }
+    },
+    { note: saved },
+  );
+
+  setRoute(root);
+  const warm = render(view(<Notes />));
+  fireEvent.click(await screen.findByRole("button", { name: "Practice" }));
+  expect(nav.push).toHaveBeenLastCalledWith(folder);
+  setRoute(folder, ids.folder);
+  warm.rerender(view(<FolderPage />));
+  fireEvent.click(await screen.findByRole("button", { name: saved.title }));
+  expect(nav.push).toHaveBeenLastCalledWith(detail);
+  setRoute(detail);
+  warm.rerender(view(<NotePage />));
+  expect(await screen.findByDisplayValue(saved.title)).toHaveProperty("readOnly", false);
+
+  setRoute(root);
+  warm.rerender(view(<Notes />));
+  expect(await screen.findByText(t("notes.empty"))).toBeDefined();
+  const onlineRequests = requests.length;
+  warm.unmount();
+  vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+
+  const cold = render(view(<Notes />));
+  fireEvent.click(await screen.findByRole("button", { name: "Practice" }));
+  expect(nav.push).toHaveBeenLastCalledWith(folder);
+  setRoute(folder, ids.folder);
+  cold.rerender(view(<FolderPage />));
+  fireEvent.click(await screen.findByRole("button", { name: saved.title }));
+  expect(nav.push).toHaveBeenLastCalledWith(detail);
+  setRoute(detail);
+  cold.rerender(view(<NotePage />));
+  expect(await screen.findByDisplayValue(saved.title)).toHaveProperty("readOnly", true);
+  expect(screen.getByText(t("extra.note_offline"))).toHaveProperty("role", "status");
+  expect(screen.getByText(saved.text)).toBeDefined();
+  expect(button("note.delete")).toHaveProperty("disabled", true);
+  expect(requests).toHaveLength(onlineRequests);
+});
+
+test("keeps cached recipient controls disabled until reauthorization and evicts denied access", async () => {
+  setRoute(noteHref);
+  const saved = received({ title: "Cached shared note", text: "- [ ] Reviewed" });
+  const reauthorization = deferred<Response>();
+  let reads = 0;
+  const requests = setup((request, path) => {
+    if (request.method === "GET" && path === noteApi) {
+      return ++reads === 1 ? json(saved) : reauthorization.promise;
+    }
+  });
+  const checkbox = (): HTMLElement => screen.getByRole("checkbox", { name: "Reviewed" });
+  const warm = render(view(<NotePage />));
+  await screen.findByRole("heading", { name: saved.title });
+  expect(checkbox()).toHaveProperty("disabled", false);
+  warm.unmount();
+
+  const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+  const cold = render(view(<NotePage />));
+  await screen.findByRole("heading", { name: saved.title });
+  expect(screen.getByText(t("extra.note_offline")).getAttribute("role")).toBe("status");
+  expect(checkbox()).toHaveProperty("disabled", true);
+  expect(button("note.reply")).toHaveProperty("disabled", true);
+  expect(calls(requests, "GET", noteApi)).toHaveLength(1);
+
+  await act(async () => {
+    online.mockReturnValue(true);
+    window.dispatchEvent(new Event("online"));
+  });
+  await waitFor(() => expect(calls(requests, "GET", noteApi)).toHaveLength(2));
+  expect(checkbox()).toHaveProperty("disabled", true);
+  expect(button("note.reply")).toHaveProperty("disabled", true);
+  expect(requests.every(({ method }) => method === "GET")).toBe(true);
+
+  await act(async () => {
+    reauthorization.resolve(json({ code: "not_found" }, 404));
+  });
+  expect(nav.replace).toHaveBeenCalledWith("/app/notes?access_removed=1");
+  expect(screen.queryByRole("heading", { name: saved.title })).toBeNull();
+  cold.unmount();
+  online.mockReturnValue(false);
+  render(view(<NotePage />));
+  await screen.findByText(t("extra.note_offline"));
+  expect(screen.queryByRole("heading", { name: saved.title })).toBeNull();
+  expect(screen.queryByRole("checkbox", { name: "Reviewed" })).toBeNull();
+  expect(calls(requests, "GET", noteApi)).toHaveLength(2);
+});
+
+test.each([false, true])(
+  "rebases an open author's title and text on reconnect with an unsaved title=%s",
+  async (dirty) => {
+    setRoute(noteHref);
+    const connect = simulateConnection();
+    const fresh = note({
+      title: "Title from another device",
+      text: "Current body",
+      updated_at: modified,
+    });
+    const verification = deferred<Response>();
+    let reads = 0;
+    const writes: Update[] = [];
+    const requests = setup(async (request, path) => {
+      if (path !== noteApi) return;
+      if (request.method === "GET") return ++reads === 1 ? json(note()) : verification.promise;
+      if (request.method === "PATCH") {
+        const patch = (await request.json()) as Update;
+        writes.push(patch);
+        return json({ ...fresh, ...patch });
+      }
+    });
+    render(view(<NotePage />));
+    const title = await screen.findByRole("textbox", { name: t("note.title_placeholder") });
+    expect(title).toHaveProperty("value", "Session record");
+    if (dirty) edit("note.title_placeholder", "My unsent title");
+
+    await connect(false);
+    await connect(true);
+    await waitFor(() => expect(calls(requests, "GET", noteApi)).toHaveLength(2));
+    expect(title).toHaveProperty("readOnly", true);
+    expect(writes).toEqual([]);
+    await act(async () => verification.resolve(json(fresh)));
+
+    expect(title).toHaveProperty("readOnly", false);
+    expect(title).toHaveProperty("value", dirty ? "My unsent title" : fresh.title);
+    expect(screen.getByText(fresh.text)).toBeDefined();
+    expect(screen.queryByText("Original note text")).toBeNull();
+    await screen.findByText(t("note.saved"));
+    expect(writes).toEqual(dirty ? [{ title: "My unsent title" }] : []);
+  },
+);
+
+test.each([false, true])(
+  "keeps the latest server note and acknowledges an in-flight write when the read is newer=%s",
+  async (readIsNewer) => {
+    setRoute(noteHref);
+    const connect = simulateConnection();
+    const verification = deferred<Response>();
+    const write = deferred<Response>();
+    const receipt = note({
+      title: "My committed edit",
+      text: "Body from save receipt",
+      updated_at: "2026-07-11T13:00:00.000002Z",
+    });
+    const reauthorized = note({
+      title: "Server title after reconnect",
+      text: "Body from verified read",
+      updated_at: readIsNewer ? "2026-07-11T13:00:00.000003Z" : "2026-07-11T13:00:00.000001Z",
+    });
+    let reads = 0;
+    const requests = setup((request, path) => {
+      if (path !== noteApi) return;
+      if (request.method === "GET") return ++reads === 1 ? json(note()) : verification.promise;
+      if (request.method === "PATCH") return write.promise;
+    });
+
+    render(view(<NotePage />));
+    const title = await screen.findByRole("textbox", { name: t("note.title_placeholder") });
+    edit("note.title_placeholder", receipt.title);
+    await waitFor(() => expect(calls(requests, "PATCH", noteApi)).toHaveLength(1));
+    await connect(false);
+    await connect(true);
+    await waitFor(() => expect(calls(requests, "GET", noteApi)).toHaveLength(2));
+
+    if (readIsNewer) {
+      await act(async () => verification.resolve(json(reauthorized)));
+      expect(title).toHaveProperty("value", receipt.title);
+      await act(async () => write.resolve(json(receipt)));
+    } else {
+      await act(async () => write.resolve(json(receipt)));
+      expect(title).toHaveProperty("readOnly", true);
+      await act(async () => verification.resolve(json(reauthorized)));
+    }
+
+    const latest = readIsNewer ? reauthorized : receipt;
+    expect(title).toHaveProperty("readOnly", false);
+    expect(title).toHaveProperty("value", latest.title);
+    expect(screen.getByText(latest.text)).toBeDefined();
+    expect(await screen.findByText(t("note.saved"))).toBeDefined();
+    expect(calls(requests, "PATCH", noteApi)).toHaveLength(1);
+  },
+);
+
+test.each([false, true])(
+  "updates an open recipient on reconnect and preserves an overlapping local tick receipt=%s",
+  async (overlappingTick) => {
+    setRoute(noteHref);
+    const connect = simulateConnection();
+    const original = received({ title: "Shared checklist", text: "- [ ] Initial item" });
+    const fresh = received({
+      title: "Updated shared checklist",
+      text: "- [ ] Updated item",
+      checked_items: [0],
+      updated_at: modified,
+    });
+    const verification = deferred<Response>();
+    const write = deferred<Response>();
+    const checklist = noteApi + "/checklist-ticks";
+    let reads = 0;
+    const requests = setup((request, path) => {
+      if (path === noteApi && request.method === "GET")
+        return ++reads === 1 ? json(original) : verification.promise;
+      if (path === checklist && request.method === "PUT") return write.promise;
+    });
+    render(view(<NotePage />));
+    const item = await screen.findByRole("checkbox", { name: "Initial item" });
+    if (overlappingTick) {
+      fireEvent.click(item);
+      await waitFor(() => expect(calls(requests, "PUT", checklist)).toHaveLength(1));
+    }
+    await connect(false);
+    await connect(true);
+    await waitFor(() => expect(calls(requests, "GET", noteApi)).toHaveLength(2));
+    expect(item).toHaveProperty("disabled", true);
+
+    if (overlappingTick) {
+      await act(async () => write.resolve(json({ ...original, checked_items: [0] })));
+      expect(screen.getByRole("checkbox", { name: "Initial item" })).toHaveProperty(
+        "checked",
+        true,
+      );
+    }
+    await act(async () => verification.resolve(json(overlappingTick ? original : fresh)));
+
+    const expected = overlappingTick ? original : fresh;
+    expect(screen.getByRole("heading", { name: expected.title })).toBeDefined();
+    const current = screen.getByRole("checkbox", {
+      name: overlappingTick ? "Initial item" : "Updated item",
+    });
+    expect(current).toHaveProperty("checked", true);
+    expect(current).toHaveProperty("disabled", false);
+    expect(calls(requests, "PUT", checklist)).toHaveLength(overlappingTick ? 1 : 0);
+  },
+);
 
 // spec:test note-editor#open-empty-note-screen-7-2
 // spec:test note-editor#keep-note-closed-empty-title

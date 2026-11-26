@@ -1,5 +1,5 @@
 import type { ReactElement } from "react";
-import { PLACEMENT, type CharacterState } from "../lib/characters";
+import { characterFiles, type CharacterState } from "../lib/characters";
 
 interface CharacterProps {
   state: CharacterState;
@@ -15,11 +15,12 @@ function imageSources(file: string, format: "webp" | "png"): string {
 }
 
 export function Character({ state, size }: CharacterProps): ReactElement {
-  const { files } = PLACEMENT[state];
+  const files = characterFiles(state);
 
   // spec:impl character-illustrations#cream-character-surface
   return (
     <div
+      data-character-state={state}
       style={{
         display: "flex",
         alignItems: "flex-end",
@@ -31,6 +32,14 @@ export function Character({ state, size }: CharacterProps): ReactElement {
     >
       {files.map((file) => (
         <picture key={file} style={{ flex: "1 1 0", minWidth: 0 }}>
+          {/* spec:impl character-illustrations#serve-svg-name-instead-raster */}
+          {size > 200 && (
+            <source
+              type="image/svg+xml"
+              media="(min-width: 241px)"
+              srcSet={`/characters/${file}.svg`}
+            />
+          )}
           {/* spec:impl character-illustrations#webp-by-pixel-density */}
           <source type="image/webp" srcSet={imageSources(file, "webp")} />
           {/* spec:impl character-illustrations#matching-png-fallback */}

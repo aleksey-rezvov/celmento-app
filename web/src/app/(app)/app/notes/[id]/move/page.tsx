@@ -4,11 +4,11 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState, type ReactElement } from "react";
 import { NoteResource, NoteUnavailable } from "@/components/notes/editor/NoteResource";
 import { NoteRouteHeader } from "@/components/notes/editor/NoteRouteHeader";
-import { useNoteOnline } from "@/components/notes/editor/useNoteAutosave";
 import { apiClient, type Schemas } from "@/lib/api/client";
 import { useTranslation } from "@/lib/i18n";
 import { noteContext } from "@/lib/note-route";
 import { noteHref } from "@/lib/notes-navigation";
+import { useOnline } from "@/lib/online";
 import { getSessionToken } from "@/lib/session";
 
 type Folder = Schemas["Folder"];
@@ -16,7 +16,7 @@ type Folder = Schemas["Folder"];
 function MoveNote({ note, back }: { note: Schemas["Note"]; back: string }): ReactElement {
   const t = useTranslation();
   const router = useRouter();
-  const online = useNoteOnline();
+  const online = useOnline();
   const [folders, setFolders] = useState<Folder[] | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [loadError, setLoadError] = useState(false);

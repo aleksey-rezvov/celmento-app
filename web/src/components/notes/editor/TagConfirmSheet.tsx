@@ -48,7 +48,9 @@ export function TagConfirmSheet({
     <Sheet title={t("share.button")} onClose={() => !busy && onClose()}>
       <div className="note-tag-confirm">
         {/* spec:impl note-sharing-tags#show-joy-character-tag-confirmation */}
-        <Character state="notes_share_confirm" size={128} />
+        <div className="character-panel">
+          <Character state="notes_share_confirm" size={128} />
+        </div>
         <p>{t(person.tagged_before ? "share.confirm" : "share.first_warning", personName)}</p>
         {/* spec:impl note-sharing-tags#add-warning-confirmation-picked-card */}
         {!person.linked && (

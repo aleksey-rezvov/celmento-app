@@ -451,6 +451,12 @@
   gap: 0.35rem;
 }
 
+.client-meetings-empty {
+  display: grid;
+  justify-items: center;
+  gap: 0.5rem;
+}
+
 .client-meeting-list {
   overflow: hidden;
   border-radius: 0.8rem;
