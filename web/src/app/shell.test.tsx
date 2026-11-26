@@ -12,6 +12,7 @@ import Meetings from "./(app)/app/meetings/page";
 import Notes from "./(app)/app/notes/page";
 import AppHome from "./(app)/app/page";
 import People from "./(app)/app/people/page";
+import RecordsLayout from "./(app)/app/records/layout";
 import Records from "./(app)/app/records/page";
 
 const navigation = vi.hoisted(() => ({
@@ -132,6 +133,25 @@ function signIn(account: Account, notices: Notice[] = []): Request[] {
           attended_total: 0,
           specialists_count: 0,
         } satisfies Schemas["MeetingList"]);
+      case "/api/v1/records/summary":
+        if (!account.activated) {
+          throw new Error("Non-leaders must not request Records.");
+        }
+        return json({
+          period: { kind: "all", from: null, to: null },
+          has_outcomes: false,
+          income: [],
+          receipts: [],
+          expenses: [],
+          prepaid: [],
+          debts: [],
+          practice_hours: 0,
+          completed_sessions: 0,
+          growth_hours: 0,
+          supervision_hours: 0,
+          personal_therapy_hours: 0,
+          training_hours: 0,
+        } satisfies Schemas["RecordsSummary"]);
       case "/api/v1/specialists":
         return json({ items: [] } satisfies Schemas["SpecialistList"]);
       case "/api/v1/clients":
@@ -313,7 +333,14 @@ test.each([false, true])(
       expect(createClient).toBeNull();
     }
 
-    view.rerender(atPath("/app/records", <Records />));
+    view.rerender(
+      atPath(
+        "/app/records",
+        <RecordsLayout>
+          <Records />
+        </RecordsLayout>,
+      ),
+    );
     expect(menuContent.queryByRole("button")).toBeNull();
     expect(menuContent.queryByRole("link", { name: t("clients.empty_add") })).toBeNull();
     if (activated) {

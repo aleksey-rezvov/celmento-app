@@ -27,6 +27,7 @@ from celmento_api.schemas.clients import (
     ClientLink,
     ClientList,
     ClientListItem,
+    ClientRef,
     ClientUpdateFields,
 )
 from celmento_api.schemas.money import format_amount
@@ -40,6 +41,20 @@ from celmento_api.services.limit import ensure_card_can_become_active
 from celmento_api.services.plan_status import plan_status
 from celmento_api.services.schedule import apply_client_currency_to_future_meetings
 from celmento_api.storage import client_photo_url
+
+
+def client_reference(
+    card: ClientCard, origin: str, linked_zone: str | None
+) -> ClientRef:
+    # spec:impl time-zone-handling#take-other-party-zone-only-linked
+    return ClientRef(
+        id=card.client_card_id,
+        name=card.name,
+        photo_url=client_photo_url(card.client_card_id, card.photo_key, origin),
+        archived=card.status == ClientCardStatus.ARCHIVED.value,
+        linked=card.linked_account_id is not None,
+        time_zone=linked_zone,
+    )
 
 
 async def owned_client(

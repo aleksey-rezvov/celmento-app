@@ -211,6 +211,13 @@ async def _apply_form(
     # spec:impl time-zone-handling#store-meeting-instant-meeting-set
     meeting.starts_at = start
     meeting.duration_minutes = duration
+    if (
+        own_duration is not None
+        and meeting.status == MeetingStatus.COMPLETED.value
+        and own_duration != meeting.my_duration_minutes
+    ):
+        # An explicit own-duration change updates the completed specialist time.
+        meeting.actual_duration_minutes = own_duration
     meeting.my_duration_minutes = own_duration
     meeting.place = place.value
     meeting.meeting_link = (
@@ -272,6 +279,7 @@ async def create_meeting(
     await session.flush()
     if "outcome" in body.root:
         # spec:impl meeting-form#run-completed-not-taken-place-flow
+        # spec:impl meeting-outcome-recording#let-backdated-meeting-saved-outcome
         await record_outcome(
             session, leader, meeting, card, body.root["outcome"].root, now
         )
@@ -303,6 +311,7 @@ async def update_meeting(
     card = await _apply_form(
         session, leader, meeting, body, origin, datetime.now(UTC), meeting.meeting_id
     )
+    # spec:impl meeting-outcome-recording#apply-edited-payment-type-client
     await correct_client_charge(session, leader, meeting, card, previous_charge)
     correct_service_expense(session, meeting, previous_expense)
     # spec:impl client-meeting-notifications#notify-meeting-change-other-reschedule

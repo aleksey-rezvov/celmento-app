@@ -9,7 +9,6 @@ from celmento_api.contour import address_url
 from celmento_api.models.account import Account
 from celmento_api.models.client_card import ClientCard
 from celmento_api.models.enums import (
-    ClientCardStatus,
     Currency,
     MeetingPlace,
     MeetingSource,
@@ -18,7 +17,6 @@ from celmento_api.models.enums import (
     PaymentType,
 )
 from celmento_api.models.meeting import Meeting
-from celmento_api.schemas.clients import ClientRef
 from celmento_api.schemas.meetings import (
     ClientMeetingList,
     MeetingDetail,
@@ -30,19 +28,21 @@ from celmento_api.schemas.meetings import (
 )
 from celmento_api.schemas.money import Money, format_amount
 from celmento_api.services.attended import attended_counts, attended_meetings
-from celmento_api.services.clients import client_view
+from celmento_api.services.clients import client_reference, client_view
 from celmento_api.services.outcomes import client_charge, visible_charge_choice
 from celmento_api.services.schedule import (
     awaiting_outcome,
     pending_condition,
     planned_end_expression,
 )
-from celmento_api.storage import client_photo_url
 
 
-def _selection(leader_id: UUID) -> Select[Meeting, ClientCard | None, str | None]:
+def owned_meeting_rows(
+    leader_id: UUID,
+) -> Select[Meeting, ClientCard | None, str | None]:
     return (
         select(Meeting, Nullable(ClientCard), Nullable(Account.time_zone))
+        .select_from(Meeting)
         .outerjoin(
             ClientCard,
             (ClientCard.client_card_id == Meeting.client_card_id)
@@ -69,21 +69,12 @@ def meeting_view(
     origin: str,
     now: datetime,
 ) -> MeetingView:
-    client = None
-    if card is not None:
-        # spec:impl time-zone-handling#take-other-party-zone-only-linked
-        client = ClientRef(
-            id=card.client_card_id,
-            name=card.name,
-            photo_url=client_photo_url(card.client_card_id, card.photo_key, origin),
-            archived=card.status == ClientCardStatus.ARCHIVED.value,
-            linked=card.linked_account_id is not None,
-            time_zone=linked_zone,
-        )
     return MeetingView(
         id=meeting.meeting_id,
         type=MeetingType(meeting.type),
-        client=client,
+        client=client_reference(card, origin, linked_zone)
+        if card is not None
+        else None,
         with_whom=meeting.with_whom,
         topic=meeting.topic,
         starts_at=meeting.starts_at,
@@ -117,7 +108,7 @@ async def own_meeting_view(
 ) -> MeetingView:
     stored, card, zone = (
         await session.execute(
-            _selection(leader.account_id).where(
+            owned_meeting_rows(leader.account_id).where(
                 Meeting.meeting_id == meeting.meeting_id
             )
         )
@@ -129,7 +120,9 @@ async def meeting_detail(
     session: AsyncSession, meeting: Meeting, leader: Account, origin: str, now: datetime
 ) -> MeetingDetail:
     rows = await session.execute(
-        _selection(leader.account_id).where(Meeting.meeting_id == meeting.meeting_id)
+        owned_meeting_rows(leader.account_id).where(
+            Meeting.meeting_id == meeting.meeting_id
+        )
     )
     stored, card, zone = rows.one()
     summary = meeting_view(stored, card, zone, leader, origin, now)
@@ -171,7 +164,7 @@ async def list_meetings(
             specialists_count=specialists_count,
         )
     rows = await session.execute(
-        _selection(leader.account_id)
+        owned_meeting_rows(leader.account_id)
         .where(Meeting.starts_at >= lower, Meeting.starts_at < upper)
         .order_by(Meeting.starts_at, Meeting.meeting_id)
     )
@@ -212,7 +205,7 @@ async def list_pending_outcomes(
 ) -> MeetingPendingOutcomeList:
     # spec:impl pending-outcomes#list-screen-3-5-meeting-awaiting
     rows = await session.execute(
-        _selection(leader.account_id)
+        owned_meeting_rows(leader.account_id)
         .where(pending_condition(now))
         .order_by(Meeting.starts_at, Meeting.meeting_id)
     )
@@ -231,7 +224,7 @@ async def list_client_meetings(
     now: datetime,
     limit: int | None,
 ) -> ClientMeetingList:
-    statement = _selection(leader.account_id).where(
+    statement = owned_meeting_rows(leader.account_id).where(
         Meeting.client_card_id == card.client_card_id
     )
     upcoming = (Meeting.status == MeetingStatus.SCHEDULED.value) & (

@@ -21,6 +21,7 @@ from celmento_api.routers import (
     notes,
     notices,
     public,
+    records,
     specialists,
 )
 
@@ -53,6 +54,7 @@ api: FastAPI = FastAPI(
         {"name": "notes"},
         {"name": "notices"},
         {"name": "public"},
+        {"name": "records"},
         {"name": "specialists"},
     ],
 )
@@ -69,6 +71,7 @@ api.include_router(notes.router)
 api.include_router(notes.folders_router)
 api.include_router(notices.router)
 api.include_router(public.router)
+api.include_router(records.router)
 api.include_router(specialists.router)
 
 app: FastAPI = FastAPI(

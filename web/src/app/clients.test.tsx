@@ -731,39 +731,51 @@ test("loads the client photo from the authenticated API and revokes replaced and
       static revokeObjectURL = revoke;
     },
   );
-  const requests = mockApi(
-    () => new Response("png bytes", { headers: { "Content-Type": "image/png" } }),
-  );
-  const view = render(
-    <ClientAvatar
-      clientId={firstId}
-      name="Ada Lovelace"
-      photoUrl="https://untrusted.example/photo?v=first"
-    />,
-  );
-  expect(screen.getByText("AL")).toBeDefined();
+  const photo = (): Response =>
+    new Response("png bytes", { headers: { "Content-Type": "image/png" } });
+  let releaseFirst: () => void = () => {
+    throw new Error("Photo fixture not initialized.");
+  };
+  const firstPhoto = new Promise<Response>((resolve) => {
+    releaseFirst = () => resolve(photo());
+  });
+  let photoReads = 0;
+  const requests = mockApi((_request, url) => {
+    if (url.pathname === "/api/v1/account") return json(accountFor(freePlan(0)));
+    if (url.pathname === `/api/v1/clients/${firstId}/photo`) {
+      return ++photoReads === 1 ? firstPhoto : photo();
+    }
+    throw new Error("Unexpected read " + url.pathname);
+  });
+  const route = (version: string): ReactElement =>
+    atPath(
+      peoplePath,
+      <ClientAvatar
+        clientId={firstId}
+        name="Ada Lovelace"
+        photoUrl={"https://untrusted.example/photo?v=" + version}
+      />,
+    );
+  const view = render(route("first"));
+  expect(await screen.findByText("AL")).toBeDefined();
+  releaseFirst();
   await waitFor(() =>
     expect(view.container.querySelector("img")?.getAttribute("src")).toBe(
       "blob:client-photo-first",
     ),
   );
-  expect(requests[0]?.url).toBe(`${origin}/api/v1/clients/${firstId}/photo`);
-  expect(requests[0]?.headers.get("Authorization")).toBe(`Bearer ${token}`);
+  const photoRequests = (): Request[] => requests.filter(({ url }) => !url.endsWith("/account"));
+  expect(photoRequests()[0]?.url).toBe(`${origin}/api/v1/clients/${firstId}/photo`);
+  expect(photoRequests()[0]?.headers.get("Authorization")).toBe(`Bearer ${token}`);
   expect(create).toHaveBeenCalledWith(expect.objectContaining({ type: "image/png" }));
 
-  view.rerender(
-    <ClientAvatar
-      clientId={firstId}
-      name="Ada Lovelace"
-      photoUrl="https://untrusted.example/photo?v=second"
-    />,
-  );
+  view.rerender(route("second"));
   await waitFor(() =>
     expect(view.container.querySelector("img")?.getAttribute("src")).toBe(
       "blob:client-photo-second",
     ),
   );
-  expect(requests).toHaveLength(2);
+  expect(photoRequests()).toHaveLength(2);
   expect(revoke).toHaveBeenCalledWith("blob:client-photo-first");
   view.unmount();
   expect(revoke).toHaveBeenCalledWith("blob:client-photo-second");

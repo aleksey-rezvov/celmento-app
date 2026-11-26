@@ -1,0 +1,227 @@
+.records-page {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 0.875rem;
+}
+
+.records-page .shell-header {
+  margin-block-end: 0;
+}
+
+.records-detail .shell-header {
+  display: grid;
+  grid-template-columns: 2.75rem minmax(0, 1fr) 2.75rem;
+  align-items: center;
+  text-align: center;
+}
+
+.records-detail .shell-header-subtitle,
+.records-period-button {
+  color: #1756a4;
+  font-family: var(--font-title);
+  font-size: clamp(1.1rem, 4.75vw, 1.5rem);
+  font-weight: 700;
+}
+
+.records-period-button {
+  text-align: start;
+  cursor: pointer;
+}
+
+.records-period-button span {
+  font-family: var(--font-sans);
+  font-size: 0.9em;
+}
+
+.records-date-range {
+  display: grid;
+  min-width: 0;
+  gap: 0.75rem;
+}
+
+.records-date-range input[type="date"] {
+  min-width: 0;
+}
+
+.records-tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.625rem;
+}
+
+.records-tile,
+.records-hours-total {
+  min-width: 0;
+  border-radius: 1.2rem;
+  padding: 0.85rem 0.9rem;
+  background: var(--records-surface, #ebe0f9);
+  overflow-wrap: anywhere;
+}
+
+.records-tile {
+  display: grid;
+  align-content: start;
+  min-height: 6.75rem;
+  gap: 0.25rem;
+}
+
+.records-tile[data-tone="income"] {
+  --records-surface: #d8e99c;
+  grid-column: 1 / -1;
+  min-height: 7.2rem;
+}
+
+.records-tile[data-tone="expenses"] {
+  --records-surface: #f3dccd;
+}
+
+.records-tile[data-tone="balances"] {
+  --records-surface: #f6e7ab;
+}
+
+.records-tile[data-tone="growth"] {
+  --records-surface: #d9e8fa;
+}
+
+.records-tile-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.4rem;
+  line-height: 1.2;
+}
+
+.records-tile-heading h2 {
+  font-size: 0.95rem;
+  font-weight: 650;
+}
+
+.records-tile-heading span,
+.records-row-chevron {
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.records-tile-value {
+  font-size: clamp(1.4rem, 5.75vw, 2.2rem);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.08;
+}
+
+.records-tile[data-tone="income"] .records-tile-value {
+  font-size: clamp(1.65rem, 7vw, 2.7rem);
+}
+
+.records-tile-detail,
+.records-hours-total > p + p {
+  font-size: 0.8rem;
+  line-height: 1.3;
+}
+
+.records-debt,
+.records-operation-amount[data-expense="true"] {
+  color: #962337;
+}
+
+.records-hours-total {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.records-hours-breakdown,
+.records-list,
+.records-list-state {
+  overflow: hidden;
+  border-radius: 1rem;
+  background: var(--color-card);
+}
+
+.records-hours-breakdown {
+  display: grid;
+  padding: 0.5rem 0.85rem;
+}
+
+.records-hours-breakdown > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.3rem 0;
+  font-size: 0.875rem;
+}
+
+.records-hours-breakdown dd,
+.records-hours-amount {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.records-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.records-list > li + li {
+  border-top: 1px solid #eee8e4;
+}
+
+.records-list-row {
+  display: flex;
+  min-width: 0;
+  min-height: 3.1rem;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.records-list-row:focus-visible {
+  outline-offset: -2px;
+}
+
+.records-operation-amount {
+  min-width: 4.5rem;
+  color: #19713b;
+  font-size: 0.95rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.records-row-description {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 0.13rem;
+  color: var(--color-text);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+
+.records-row-description .client-row-tag {
+  justify-self: start;
+}
+
+.records-row-meta {
+  color: var(--color-secondary);
+  font-size: 0.75rem;
+  line-height: 1.2;
+}
+
+.records-hours-amount {
+  font-size: 0.9rem;
+  font-weight: 650;
+}
+
+.records-list-state {
+  display: grid;
+  justify-items: start;
+  gap: 0.625rem;
+  padding: 1rem;
+}
+
+.records-loading {
+  min-height: 4rem;
+}
