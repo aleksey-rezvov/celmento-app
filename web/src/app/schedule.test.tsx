@@ -188,7 +188,10 @@ function schedule(
   items: Meeting[] = [],
   count = 0,
   next: number | null = null,
-  represented: Pick<Schemas["MeetingList"], "attended" | "attended_total" | "specialists_count"> = {
+  represented: Pick<
+    Schemas["MeetingList"],
+    "attended" | "attended_total" | "specialists_count" | "booking_blocks"
+  > = {
     attended: [],
     attended_total: 0,
     specialists_count: 0,
@@ -823,6 +826,146 @@ test.each(["schedule", "day"] as const)(
     expect(screen.getAllByRole("button", { name: t("extra.notice_dismiss") })).toHaveLength(1);
   },
 );
+
+// spec:test booking-time-blocks#manage-blocks-from-day
+test("closes selected times or the whole day and confirms reopening without preventing manual meetings", async () => {
+  const day = "2026-11-18";
+  const timed = {
+    id: sessionId,
+    starts_at: "2026-11-18T12:00:00Z",
+    ends_at: "2026-11-18T13:30:00Z",
+  };
+  const wholeDay = {
+    id: trainingId,
+    starts_at: "2026-11-17T21:00:00Z",
+    ends_at: "2026-11-18T21:00:00Z",
+  };
+  let blocks: Schemas["BookingTimeBlock"][] = [];
+  const inputs: Schemas["BookingTimeBlockCreate"][] = [];
+  const reopened: string[] = [];
+  signedApi(async (request, url) => {
+    expect(request.headers.get("Authorization")).toBe("Bearer " + token);
+    if (url.pathname === "/api/v1/meetings" && request.method === "GET") {
+      expect(Object.fromEntries(url.searchParams)).toEqual(oneDay(day));
+      return schedule([], 0, null, {
+        attended: [],
+        attended_total: 0,
+        specialists_count: 0,
+        booking_blocks: blocks,
+      });
+    }
+    if (url.pathname === "/api/v1/meetings/booking-blocks" && request.method === "POST") {
+      const input: Schemas["BookingTimeBlockCreate"] = await request.json();
+      inputs.push(input);
+      const block = input.start ? timed : wholeDay;
+      blocks = [...blocks, block];
+      return json(block, 201);
+    }
+    if (
+      url.pathname === "/api/v1/meetings/booking-blocks/" + timed.id &&
+      request.method === "DELETE"
+    ) {
+      reopened.push(timed.id);
+      blocks = blocks.filter((block) => block.id !== timed.id);
+      return new Response(null, { status: 204 });
+    }
+    throw new Error("Unexpected " + request.method + " " + url.pathname);
+  });
+  saveView("day");
+  nav.query = "date=" + day;
+  render(at("/app/meetings", <Meetings />));
+
+  const closeBooking = t("extra.schedule_close_booking");
+  const reopenBooking = t("extra.schedule_reopen_booking");
+  const closedBooking = t("extra.schedule_booking_closed");
+  expect(await screen.findByText(t("meetings.empty_day"))).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: closeBooking }));
+  const close = screen.getByRole("dialog", { name: closeBooking });
+  expect(close.querySelector("time")?.dateTime).toBe(day);
+  const form = within(close);
+  const save = form.getByRole("button", { name: t("form.save") });
+  fireEvent.change(form.getByLabelText(t("extra.profile_work_start")), {
+    target: { value: "15:00" },
+  });
+  expect(form.getByRole("alert").textContent).toBe(t("extra.schedule_block_invalid"));
+  expect(save).toHaveProperty("disabled", true);
+  expect(inputs).toEqual([]);
+  fireEvent.change(form.getByLabelText(t("extra.profile_work_end")), {
+    target: { value: "16:30" },
+  });
+  fireEvent.click(save);
+
+  const timedLabel = "15:00–16:30";
+  const timedRow = (await screen.findByText(timedLabel)).closest("li");
+  if (!timedRow) throw new Error("The saved closure must appear in the list.");
+  expect(within(timedRow).getByText(closedBooking)).toBeDefined();
+  const scale = screen.getByRole("region", { name: t("meetings.view_day") });
+  expect(scale.querySelectorAll(".schedule-booking-block")).toHaveLength(1);
+  fireEvent.click(within(scale).getByRole("button", { name: t("form.start") + " 15:00" }));
+  fireEvent.click(within(scale).getByRole("button", { name: t("meetings.create") }));
+  expect(nav.router.push).toHaveBeenCalledWith(
+    "/app/meetings/new?date=2026-11-18&starts_at=2026-11-18T12%3A00%3A00.000Z",
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: closeBooking }));
+  const allDayForm = within(screen.getByRole("dialog", { name: closeBooking }));
+  const allDay = t("extra.schedule_all_day");
+  fireEvent.click(allDayForm.getByRole("checkbox", { name: allDay }));
+  expect(allDayForm.queryByLabelText(t("extra.profile_work_start"))).toBeNull();
+  fireEvent.click(allDayForm.getByRole("button", { name: t("form.save") }));
+  expect(
+    await within(screen.getByRole("list", { name: closedBooking })).findByText(allDay),
+  ).toBeDefined();
+  expect(inputs).toEqual([{ date: day, start: "15:00", end: "16:30" }, { date: day }]);
+
+  const reopen = within(timedRow).getByRole("button", { name: `${reopenBooking} · ${timedLabel}` });
+  fireEvent.click(reopen);
+  const confirmation = within(screen.getByRole("dialog", { name: reopenBooking }));
+  expect(confirmation.getByText(t("extra.schedule_reopen_booking_effect"))).toBeDefined();
+  fireEvent.click(confirmation.getByRole("button", { name: t("archive.cancel") }));
+  expect(reopened).toEqual([]);
+  expect(screen.getByText(timedLabel)).toBeDefined();
+  fireEvent.click(reopen);
+  fireEvent.click(
+    within(screen.getByRole("dialog", { name: reopenBooking })).getByRole("button", {
+      name: reopenBooking,
+    }),
+  );
+  await waitFor(() => expect(screen.queryByText(timedLabel)).toBeNull());
+  expect(reopened).toEqual([timed.id]);
+  expect(screen.getByText(allDay)).toBeDefined();
+});
+
+// spec:test booking-time-blocks#manage-blocks-from-day
+test("labels the entire civil day when the local clock skips midnight", async () => {
+  const day = "2027-04-30";
+  const timeZone = "Africa/Cairo";
+  const startsAt = "2027-04-29T22:00:00Z";
+  expect(zonedDay(startsAt, timeZone)).toBe(day);
+  expect(zonedClock(startsAt, timeZone)).toBe("01:00");
+  signedApi(
+    () =>
+      schedule([], 0, null, {
+        attended: [],
+        attended_total: 0,
+        specialists_count: 0,
+        booking_blocks: [{ id: sessionId, starts_at: startsAt, ends_at: "2027-04-30T21:00:00Z" }],
+      }),
+    accountFor(true, "en", timeZone),
+  );
+  saveView("day");
+  nav.query = "date=" + day;
+  render(at("/app/meetings", <Meetings />));
+
+  const closures = await screen.findByRole("list", { name: t("extra.schedule_booking_closed") });
+  const allDay = t("extra.schedule_all_day");
+  expect(within(closures).getByText(allDay)).toBeDefined();
+  expect(
+    within(closures).getByRole("button", {
+      name: `${t("extra.schedule_reopen_booking")} · ${allDay}`,
+    }),
+  ).toBeDefined();
+});
 
 // spec:test pending-outcomes#list-screen-3-5-meeting-awaiting
 // spec:test pending-outcomes#show-done-missed-row-start

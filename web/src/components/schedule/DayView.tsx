@@ -3,11 +3,13 @@
 import { useLayoutEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { EmptyState } from "@/components/shell/EmptyState";
 import { useAccount } from "@/lib/account";
+import type { Schemas } from "@/lib/api/client";
 import { useTranslation } from "@/lib/i18n";
 import { meetingCreationHref } from "@/lib/schedule-view";
 import { zonedDay, zonedInstant } from "@/lib/zoned-date";
 import { AttendedBlock } from "./AttendedBlock";
 import { AttendeeEmpty } from "./AttendeeEmpty";
+import { BookingBlockShading } from "./BookingBlocks";
 import { CurrentTimeLine } from "./CurrentTimeLine";
 import { HourScale, hours } from "./HourScale";
 import { MeetingBlock } from "./MeetingBlock";
@@ -79,6 +81,7 @@ function freeHours(meetings: ScheduleItem[], day: string, timeZone: string): Map
 interface DayViewProps {
   day: string;
   meetings: ScheduleItem[];
+  bookingBlocks: readonly Schemas["BookingTimeBlock"][];
   leader: boolean;
   attendedTotal: number;
   specialistsCount: number;
@@ -92,6 +95,7 @@ interface DayViewProps {
 export function DayView({
   day,
   meetings,
+  bookingBlocks,
   leader,
   attendedTotal,
   specialistsCount,
@@ -175,6 +179,7 @@ export function DayView({
         <div className="schedule-day-track">
           <HourScale available={available} selected={selected} onSelect={setSelected} />
           <div className="schedule-blocks">
+            <BookingBlockShading blocks={bookingBlocks} day={day} timeZone={timeZone} />
             {blocks.map(({ item, start, end, lane, lanes }) => {
               const style = {
                 top: `${start / 14.4}%`,

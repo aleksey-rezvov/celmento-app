@@ -699,6 +699,38 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/meetings/booking-blocks": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["createBookingTimeBlock"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/meetings/booking-blocks/{booking_block_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete: operations["deleteBookingTimeBlock"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/meetings/calendar": {
     parameters: {
       query?: never;
@@ -1418,6 +1450,11 @@ export interface components {
       working: boolean;
       start: components["schemas"]["TimeOfDay"];
       end: components["schemas"]["TimeOfDay"];
+      additional_intervals?: components["schemas"]["WorkingInterval"][];
+    };
+    WorkingInterval: {
+      start: components["schemas"]["TimeOfDay"];
+      end: components["schemas"]["TimeOfDay"];
     };
     PlanStatus: {
       kind: "free" | "subscription";
@@ -1959,6 +1996,17 @@ export interface components {
       next_outcome_in_seconds: number | null;
       attended_total: number;
       specialists_count: number;
+      booking_blocks?: components["schemas"]["BookingTimeBlock"][];
+    };
+    BookingTimeBlockCreate: {
+      date: string;
+      start?: components["schemas"]["TimeOfDay"] | null;
+      end?: components["schemas"]["TimeOfDay"] | null;
+    };
+    BookingTimeBlock: {
+      id: string;
+      starts_at: string;
+      ends_at: string;
     };
     MeetingCreate: {
       type: components["schemas"]["MeetingType"];
@@ -3856,6 +3904,57 @@ export interface operations {
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
+      422: components["responses"]["ValidationError"];
+      500: components["responses"]["InternalError"];
+    };
+  };
+  createBookingTimeBlock: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["BookingTimeBlockCreate"];
+      };
+    };
+    responses: {
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["BookingTimeBlock"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      422: components["responses"]["ValidationError"];
+      500: components["responses"]["InternalError"];
+    };
+  };
+  deleteBookingTimeBlock: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        booking_block_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
       422: components["responses"]["ValidationError"];
       500: components["responses"]["InternalError"];
     };

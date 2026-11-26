@@ -386,7 +386,6 @@ async def test_activation_validates_current_consents_and_applies_once(
 # spec:test default-rate-currency#let-leader-save-profile-work
 # spec:test working-hours-booking-rules#allow-one-interval-day-start
 # spec:test working-hours-booking-rules#block-save-show
-# spec:test working-hours-booking-rules#allow-more-one-working-interval
 async def test_leader_updates_store_overrides_and_restore_defaults(
     account_stand: AccountStand,
 ) -> None:
@@ -537,6 +536,148 @@ async def test_leader_updates_store_overrides_and_restore_defaults(
             await session.scalar(select(func.count()).select_from(WorkingDayRecord))
             == 0
         )
+
+
+# spec:test working-hours-booking-rules#allow-more-one-working-interval
+# spec:test working-hours-booking-rules#validate-working-intervals
+async def test_working_intervals_validate_and_survive_legacy_updates(
+    account_stand: AccountStand,
+) -> None:
+    stand = account_stand
+    client = stand.client
+    specialist = await stand.add_account("separate_work_windows")
+    headers = _bearer(specialist)
+    initial = await stand.activate(specialist)
+    assert initial.leader is not None
+    original = [_day_body(day) for day in initial.leader.working_hours]
+    monday = {
+        **original[0],
+        "start": "15:00",
+        "end": "18:00",
+        "additional_intervals": [
+            {"start": "12:30", "end": "14:00"},
+            {"start": "10:00", "end": "12:00"},
+        ],
+    }
+    saved = _account(
+        await client.patch(
+            ACCOUNT,
+            headers=headers,
+            json={"leader": {"working_hours": [monday, *original[1:]]}},
+        )
+    )
+    assert saved.leader is not None
+    windows = saved.leader.working_hours[0]
+    assert (windows.start, windows.end) == ("10:00", "12:00")
+    assert [
+        (interval.start, interval.end) for interval in windows.additional_intervals
+    ] == [
+        ("12:30", "14:00"),
+        ("15:00", "18:00"),
+    ]
+
+    legacy_monday = _day_body(windows)
+    for incorrect in (
+        {"start": "11:45", "end": "12:45"},
+        {"start": "14:10", "end": "15:00"},
+        {"start": "15:00", "end": "14:30"},
+    ):
+        rejected = {**legacy_monday, "additional_intervals": [incorrect]}
+        error = _error(
+            await client.patch(
+                ACCOUNT,
+                headers=headers,
+                json={"leader": {"working_hours": [rejected, *original[1:]]}},
+            ),
+            400,
+            ErrorCode.WORKING_HOURS_INVALID,
+        )
+        assert error.details == {"weekday": "mon"}
+    assert _account(await client.get(ACCOUNT, headers=headers)) == saved
+
+    off = _account(
+        await client.patch(
+            ACCOUNT,
+            headers=headers,
+            json={
+                "leader": {
+                    "working_hours": [
+                        {**legacy_monday, "working": False},
+                        *original[1:],
+                    ]
+                }
+            },
+        )
+    )
+    assert off.leader is not None
+    assert not off.leader.working_hours[0].working
+    assert (
+        off.leader.working_hours[0].additional_intervals == windows.additional_intervals
+    )
+    restored = _account(
+        await client.patch(
+            ACCOUNT,
+            headers=headers,
+            json={"leader": {"working_hours": [legacy_monday, *original[1:]]}},
+        )
+    )
+    assert restored.leader is not None
+    assert restored.leader.working_hours[0] == windows
+    _error(
+        await client.patch(
+            ACCOUNT,
+            headers=headers,
+            json={
+                "leader": {
+                    "working_hours": [
+                        {**legacy_monday, "end": "13:00"},
+                        *original[1:],
+                    ]
+                }
+            },
+        ),
+        400,
+        ErrorCode.WORKING_HOURS_INVALID,
+    )
+    assert _account(await client.get(ACCOUNT, headers=headers)) == restored
+    changed = _account(
+        await client.patch(
+            ACCOUNT,
+            headers=headers,
+            json={
+                "leader": {
+                    "working_hours": [
+                        {**legacy_monday, "end": "12:15"},
+                        *original[1:],
+                    ]
+                }
+            },
+        )
+    )
+    assert changed.leader is not None
+    assert changed.leader.working_hours[0].end == "12:15"
+    assert (
+        changed.leader.working_hours[0].additional_intervals
+        == windows.additional_intervals
+    )
+
+    empty_intervals: list[dict[str, str]] = []
+    cleared = _account(
+        await client.patch(
+            ACCOUNT,
+            headers=headers,
+            json={
+                "leader": {
+                    "working_hours": [
+                        {**legacy_monday, "additional_intervals": empty_intervals},
+                        *original[1:],
+                    ]
+                }
+            },
+        )
+    )
+    assert cleared.leader is not None
+    assert cleared.leader.working_hours[0].additional_intervals == []
 
 
 # spec:test booking-link-login#check-login-typed-show-field
