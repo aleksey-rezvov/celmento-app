@@ -491,6 +491,7 @@ test("books with versioned consents, retries the unchanged body, and preserves t
     login,
     booking_context: context,
     starts_at: anotherSlot,
+    expected_session_format: "both",
     name: "Booking guest",
     email: guestEmail,
     contact: "@reach_me",
@@ -855,3 +856,68 @@ test.each([false, true])(
     expect(loadPackage()?.claims.origin).toEqual(origin);
   },
 );
+
+test("refreshes the changed guest booking format while retaining fields and consents", async () => {
+  let format: Schemas["SessionFormat"] = "online";
+  const requests = publicApi((request, path) => {
+    if (path === profile) return json(specialist({ session_format: format }));
+    if (path === slots) return slotList([firstSlot], today);
+    if (path === "/public/bookings" && request.method === "POST") {
+      if (format === "online") {
+        format = "both";
+        return json({ code: "conflict" }, 409);
+      }
+      return json(
+        {
+          id: bookingId,
+          specialist_name: "Ada Lovelace",
+          starts_at: firstSlot,
+          place: "in_person",
+          meeting_link: null,
+          email: guestEmail,
+        } satisfies Schemas["GuestBookingConfirmation"],
+        201,
+      );
+    }
+    throw new Error("Unexpected request " + path);
+  });
+  const view = render(at(base, <PublicPage />));
+  await openSlot(view);
+  fill(t("form.name"), "Booking guest");
+  fill(t("form.email"), guestEmail);
+  fill("Comment", "Keep this note");
+  await acceptConsent();
+  fireEvent.click(button("form.book"));
+
+  const inPerson = await screen.findByRole("button", { name: t("profile.format_offline") });
+  expect(button("form.book")).toHaveProperty("disabled", true);
+  expect(screen.getByRole("textbox", { name: "Comment" })).toHaveProperty(
+    "value",
+    "Keep this note",
+  );
+  expect(screen.getByRole("textbox", { name: t("form.email") })).toHaveProperty(
+    "value",
+    guestEmail,
+  );
+  expect(
+    screen.getAllByRole("checkbox").every((input) => (input as HTMLInputElement).checked),
+  ).toBe(true);
+  fireEvent.click(inPerson);
+  fireEvent.click(button("form.book"));
+  await waitFor(() => expect(navigation.replace).toHaveBeenLastCalledWith(base + "/done"));
+
+  const attempts = calls(requests, "/public/bookings", "POST");
+  expect(attempts).toHaveLength(2);
+  expect(attempts[0]?.headers.get("Idempotency-Key")).not.toBe(
+    attempts[1]?.headers.get("Idempotency-Key"),
+  );
+  expect(await attempts[0]?.json()).toMatchObject({
+    expected_session_format: "online",
+    comment: "Keep this note",
+  });
+  expect(await attempts[1]?.json()).toMatchObject({
+    expected_session_format: "both",
+    place: "in_person",
+    comment: "Keep this note",
+  });
+});

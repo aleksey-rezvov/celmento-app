@@ -41,6 +41,8 @@ vi.mock("next/link", () => ({
 
 type Account = Schemas["Account"];
 type Meeting = Schemas["Meeting"];
+type AttendedMeeting = Schemas["AttendedMeeting"];
+type Notice = Schemas["Notice"];
 
 const token = "test-schedule-session";
 const origin = "https://world-api.example.test";
@@ -133,6 +135,47 @@ function meeting(id: string, startsAt: string, fields: Partial<Meeting> = {}): M
   };
 }
 
+function attended(
+  id: string,
+  startsAt: string,
+  fields: Partial<AttendedMeeting> = {},
+): AttendedMeeting {
+  return {
+    id,
+    specialist: {
+      id: "019ac7a0-0000-7ab1-b031-999999999999",
+      first_name: "Anna",
+      last_name: "Santos",
+      photo_url: null,
+      specializations: [],
+      specialization_other: null,
+      time_zone: "Europe/Belgrade",
+      phone: null,
+      telegram: null,
+      whatsapp: null,
+      contact_email: null,
+    },
+    starts_at: startsAt,
+    duration_minutes: 60,
+    place: "online",
+    meeting_link: null,
+    address: null,
+    price: { amount: "50", currency: "EUR" },
+    status: "scheduled",
+    charged: null,
+    payment_type: "paid",
+    ...fields,
+  };
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((complete) => {
+    resolve = complete;
+  });
+  return { promise, resolve };
+}
+
 function json(result: unknown, status = 200): Response {
   return new Response(JSON.stringify(result), {
     status,
@@ -140,21 +183,28 @@ function json(result: unknown, status = 200): Response {
   });
 }
 
-function schedule(items: Meeting[] = [], count = 0, next: number | null = null): Response {
-  return json({
-    items,
+function schedule(
+  items: Meeting[] = [],
+  count = 0,
+  next: number | null = null,
+  represented: Pick<Schemas["MeetingList"], "attended" | "attended_total" | "specialists_count"> = {
     attended: [],
-    pending_outcomes_count: count,
-    next_outcome_in_seconds: next,
     attended_total: 0,
     specialists_count: 0,
+  },
+): Response {
+  return json({
+    items,
+    pending_outcomes_count: count,
+    next_outcome_in_seconds: next,
+    ...represented,
   } satisfies Schemas["MeetingList"]);
 }
 
 function signedApi(
   respond: (request: Request, url: URL) => Response | Promise<Response>,
   account = accountFor(),
-  notices: Schemas["Notice"][] = [],
+  notices: Notice[] | ((request: Request) => Response | Promise<Response>) = [],
 ): Request[] {
   setSessionToken(token);
   const requests: Request[] = [];
@@ -165,7 +215,9 @@ function signedApi(
       const url = new URL(request.url);
       if (url.pathname === "/api/v1/account") return json(account);
       if (url.pathname === "/api/v1/notices")
-        return json({ items: notices } satisfies Schemas["NoticeList"]);
+        return typeof notices === "function"
+          ? notices(request)
+          : json({ items: notices } satisfies Schemas["NoticeList"]);
       return respond(request, url);
     }),
   );
@@ -236,6 +288,8 @@ test("converts local wall times across midnight and resolves DST gaps and repeat
 // spec:test schedule-date-navigation#show-title-header-meetings-tab
 // spec:test schedule-date-navigation#show-header-date-subtitle-chevron
 // spec:test schedule-day-view#return-current-day-today-tapped
+// spec:test schedule-day-view#show-day-without-meetings-empty
+// spec:test schedule-feed-view#show-today-row-even-today
 test("defaults to today's feed, remembers Day, and reopens ordinarily on the account's today", async () => {
   const requests = signedApi(() => schedule());
   const first = render(at("/app/meetings", <Meetings />));
@@ -249,11 +303,25 @@ test("defaults to today's feed, remembers Day, and reopens ordinarily on the acc
   expect(
     screen.getByRole("button", { name: t("meetings.today") }).getAttribute("aria-haspopup"),
   ).toBe("dialog");
-  expect(await screen.findByText(t("meetings.today_empty"))).toBeDefined();
+  const feedEmpty = await screen.findByText(t("meetings.today_empty"));
+  expect(feedEmpty.parentElement?.querySelector("picture img")?.getAttribute("src")).toBe(
+    "/characters/celmento-master-blue@200px.png",
+  );
   expect(scheduleRanges(requests)[0]).toEqual({ from: "2026-11-02", to: "2026-11-30" });
 
   fireEvent.click(switcher.getByRole("button", { name: t("meetings.view_day") }));
   await screen.findByRole("region", { name: t("meetings.view_day") });
+  const dayEmpty = await screen.findByText(t("meetings.empty_day"));
+  const emptyState = dayEmpty.closest<HTMLElement>(".schedule-day-empty");
+  if (!emptyState) throw new Error("Expected the empty day section.");
+  expect(emptyState.querySelector("picture img")?.getAttribute("src")).toBe(
+    "/characters/celmento-master-blue@200px.png",
+  );
+  expect(
+    within(emptyState)
+      .getByRole("link", { name: t("meetings.empty_day_cta") })
+      .getAttribute("href"),
+  ).toBe(`/app/meetings/new?date=${today}`);
   expect(scheduleRanges(requests).at(-1)).toEqual(oneDay(today));
   fireEvent.click(screen.getByRole("button", { name: t("extra.schedule_next_day") }));
   expect(await screen.findByRole("button", { name: "17 November" })).toBeDefined();
@@ -779,13 +847,21 @@ test("shows the pending empty state and leads back to the schedule", async () =>
 
 // spec:test pending-outcomes#show-bar-badge-screen-3-5
 // spec:test schedule-day-view#offer-non-leader-empty-hour-selection
-test("shows no outcome or creation controls to an account without activation", async () => {
+// spec:test attended-meetings#show-account-without-activation-no-attended
+test("shows the attendee empty state without outcome or creation controls", async () => {
   const requests = signedApi((_request, url) => {
+    if (url.pathname === "/api/v1/meetings") return schedule();
     throw new Error(`Unexpected request to ${url.pathname}`);
   }, accountFor(false));
   saveView("day");
   const view = render(at("/app/meetings", <Meetings />));
-  expect(await screen.findByText(t("c.no_bookings"))).toBeDefined();
+  const empty = await screen.findByText(t("c.no_bookings"));
+  expect(empty.parentElement?.querySelector("picture img")?.getAttribute("src")).toBe(
+    "/characters/celmento-master-red@200px.png",
+  );
+  expect(screen.getByRole("link", { name: t("c.find_specialist") }).getAttribute("href")).toBe(
+    "/app/people",
+  );
   expect(screen.queryByRole("link", { name: t("meetings.empty_day_cta") })).toBeNull();
   expect(
     screen.queryByRole("button", { name: (name) => name.startsWith(t("form.start") + " ") }),
@@ -795,5 +871,300 @@ test("shows no outcome or creation controls to an account without activation", a
 
   view.rerender(at("/app/meetings/pending", <PendingMeetings />));
   await waitFor(() => expect(nav.router.replace).toHaveBeenCalledWith("/app/meetings"));
-  expect(requests.some(({ url }) => url.includes("/api/v1/meetings"))).toBe(false);
+  expect(scheduleRanges(requests)).toEqual([oneDay(today)]);
+  expect(requests.some(({ url }) => url.endsWith("/pending-outcomes"))).toBe(false);
+});
+
+// spec:test attended-meetings#show-account-without-activation-no-attended
+test("links both empty attendee views to People for booking when a specialist is linked", async () => {
+  const requests = signedApi(
+    () => schedule([], 0, null, { attended: [], attended_total: 0, specialists_count: 1 }),
+    accountFor(false),
+  );
+  render(at("/app/meetings", <Meetings />));
+
+  const book = await screen.findByRole("link", { name: t("form.book") });
+  expect(book.getAttribute("href")).toBe("/app/people");
+  expect(screen.getByText(t("c.no_bookings"))).toBeDefined();
+  expect(screen.queryByText(t("meetings.today_empty"))).toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: t("meetings.view_day") }));
+  expect((await screen.findByRole("link", { name: t("form.book") })).getAttribute("href")).toBe(
+    "/app/people",
+  );
+  expect(screen.queryByText(t("meetings.empty_day"))).toBeNull();
+  expect(scheduleRanges(requests).at(-1)).toEqual(oneDay(today));
+});
+
+// spec:test attended-meetings#show-attended-meetings-day-view
+// spec:test attended-meetings#show-attended-meetings-account-without-activation
+// spec:test attended-meetings#render-attended-meeting-date-time
+// spec:test attended-meetings#show-feed-row-past-attended
+// spec:test attended-meetings#open-details-9-9-account-taps
+// spec:test schedule-day-view#show-attended-meetings-day-blocks
+// spec:test schedule-day-view#open-meeting-card-block-person
+// spec:test schedule-feed-view#show-attended-meetings-feed-grey
+// spec:test schedule-feed-view#open-meeting-card-person-meeting
+test.each([false, true])(
+  "opens grey attended rows in both views when activation is %s",
+  async (activated) => {
+    setClock("2026-11-16T12:00:00Z");
+    const completed = attended(archivedId, "2026-11-16T06:00:00Z", { status: "completed" });
+    const charged = attended(trainingId, "2026-11-16T08:00:00Z", {
+      status: "not_taken_place",
+      charged: true,
+    });
+    const missed = attended(mutualId, "2026-11-16T09:00:00Z", {
+      status: "not_taken_place",
+      charged: false,
+    });
+    const pending = attended(therapyId, "2026-11-16T10:00:00Z");
+    const own = meeting(sessionId, "2026-11-16T07:00:00Z", { with_whom: "Own session" });
+    const meetings = [pending, missed, completed, charged];
+    signedApi(
+      () =>
+        schedule([own], 0, null, { attended: meetings, attended_total: 4, specialists_count: 1 }),
+      accountFor(activated),
+    );
+    render(at("/app/meetings", <Meetings />));
+
+    const feed = await screen.findByRole("region", { name: t("meetings.view_schedule") });
+    const grey = await within(feed).findAllByRole("button", { name: /Anna Santos/u });
+    expect(grey).toHaveLength(4);
+    expect(grey.map((item) => item.getAttribute("data-attended"))).toEqual(Array(4).fill("true"));
+    expect(grey.map((item) => item.querySelector("time")?.textContent)).toEqual([
+      "09:00",
+      "11:00",
+      "12:00",
+      "13:00",
+    ]);
+    expect(
+      grey.map((item) => item.querySelector(".schedule-meeting-status")?.textContent ?? null),
+    ).toEqual([t("c.status_done"), t("c.status_missed_charged"), t("c.status_missed"), null]);
+    const first = grey[0];
+    if (!first) throw new Error("An attended row is required.");
+    expect(first.textContent).toContain("specialist's time 07:00");
+    expect(first.textContent).toContain(t("profile.format_online"));
+    expect(first.querySelector("s, .schedule-completed, .schedule-outcome-badge")).toBeNull();
+    expect(
+      [...feed.querySelectorAll(".schedule-feed-card time:first-child")].map(
+        (item) => item.textContent,
+      ),
+    ).toEqual(
+      activated
+        ? ["09:00", "10:00", "11:00", "12:00", "13:00"]
+        : ["09:00", "11:00", "12:00", "13:00"],
+    );
+    const ownRow = within(feed).queryByRole("button", { name: /Own session/u });
+    if (activated) {
+      if (!ownRow) throw new Error("The account's own session is missing.");
+      fireEvent.click(ownRow);
+      expect(nav.router.push).toHaveBeenLastCalledWith(`/app/meetings/${sessionId}`);
+    } else {
+      expect(ownRow).toBeNull();
+    }
+    fireEvent.click(first);
+    expect(nav.router.push).toHaveBeenLastCalledWith(`/app/meetings/attended/${archivedId}`);
+
+    fireEvent.click(screen.getByRole("button", { name: t("meetings.view_day") }));
+    const day = await screen.findByRole("region", { name: t("meetings.view_day") });
+    const attendedBlocks = within(day).getAllByRole("button", { name: /Anna Santos/u });
+    const firstBlock = attendedBlocks[0];
+    if (!firstBlock) throw new Error("An attended block is required.");
+    expect(firstBlock.getAttribute("data-attended")).toBe("true");
+    expect(firstBlock.textContent).toContain("09:00–10:00");
+    expect(firstBlock.textContent).toContain("specialist's time 07:00");
+    expect(
+      firstBlock.querySelector(
+        "s, .schedule-completed, .schedule-outcome-badge, .schedule-meeting-status",
+      ),
+    ).toBeNull();
+    fireEvent.click(firstBlock);
+    expect(nav.router.push).toHaveBeenLastCalledWith(`/app/meetings/attended/${archivedId}`);
+  },
+);
+
+test.each([
+  { edge: "extra.schedule_earlier", day: "2026-10-20", time: "2026-10-20T10:00:00Z" },
+  { edge: "extra.schedule_later", day: "2026-12-08", time: "2026-12-08T10:00:00Z" },
+] as const)(
+  "uses the updated meeting when it moves into the $edge extension",
+  async ({ edge, day, time }) => {
+    const old = attended(sessionId, "2026-11-16T11:00:00Z");
+    const own = meeting(sessionId, "2026-11-16T09:30:00Z", { with_whom: "Own record" });
+    signedApi((_request, url) => {
+      const extension = url.searchParams.get("from") !== "2026-11-02";
+      return schedule(extension ? [] : [own], 0, null, {
+        attended: [extension ? { ...old, starts_at: time } : old],
+        attended_total: 1,
+        specialists_count: 1,
+      });
+    });
+    render(at("/app/meetings", <Meetings />));
+    const first = await screen.findByRole("button", { name: /Anna Santos/u });
+    expect(first.closest("[data-feed-day]")?.getAttribute("data-feed-day")).toBe(today);
+
+    fireEvent.click(screen.getByRole("button", { name: t(edge) }));
+    await waitFor(() => {
+      const only = screen.getByRole("button", { name: /Anna Santos/u });
+      expect(only.closest("[data-feed-day]")?.getAttribute("data-feed-day")).toBe(day);
+    });
+    expect(screen.getByRole("button", { name: /Own record/u })).toBeDefined();
+  },
+);
+
+test("opens the timetable when optional notices miss the deadline", async () => {
+  const notices = deferred<Response>();
+  const timers = vi.spyOn(window, "setTimeout");
+  const observed: { noticeSignal?: AbortSignal } = {};
+  const knownMeeting = meeting(sessionId, "2026-11-16T11:00:00Z", { with_whom: "Loaded schedule" });
+  const requests = signedApi(
+    () => schedule([knownMeeting]),
+    accountFor(),
+    (request) => {
+      observed.noticeSignal = request.signal;
+      return notices.promise;
+    },
+  );
+  render(at("/app/meetings", <Meetings />));
+
+  await waitFor(() => expect(observed.noticeSignal).toBeDefined());
+  expect(scheduleRanges(requests)).toEqual([]);
+  const deadline = timers.mock.calls.find(([, delay]) => delay === 500)?.[0];
+  if (typeof deadline !== "function") throw new Error("The optional read has no deadline.");
+  act(deadline);
+  await screen.findByRole("button", { name: /Loaded schedule/u });
+  expect(observed.noticeSignal?.aborted).toBe(true);
+  expect(scheduleRanges(requests)).toHaveLength(1);
+
+  await act(async () => {
+    notices.resolve(
+      json({
+        items: [
+          {
+            id: "late-notice",
+            tab: "meetings",
+            key: "notify.cancelled",
+            created_at: baseTime,
+            params: { starts_at: knownMeeting.starts_at },
+          },
+        ],
+      } satisfies Schemas["NoticeList"]),
+    );
+  });
+  expect(screen.queryByText(/has been cancelled/u)).toBeNull();
+  expect(screen.getByRole("button", { name: /Loaded schedule/u })).toBeDefined();
+});
+
+// spec:test client-meeting-notifications#keep-attendee-schedule-consistent-bar
+// spec:test client-meeting-notifications#show-notification-bar-meetings-tab
+// spec:test client-meeting-notifications#use-rescheduled-previous-new-date
+// spec:test client-meeting-notifications#use-cancelled-meeting-date-time
+// spec:test attended-meetings#update-attended-meeting-details-leader
+test("publishes reschedule and cancellation notices only with the committed timetable", async () => {
+  const initial = attended(sessionId, "2026-11-16T11:00:00Z");
+  const moved = { ...initial, starts_at: "2026-11-17T13:00:00Z" };
+  const updateResponse = deferred<Response>();
+  let stage: "initial" | "reschedule" | "cancel" = "initial";
+  const notice: Notice = {
+    id: "updated",
+    key: "notify.rescheduled",
+    tab: "meetings",
+    created_at: baseTime,
+    params: {
+      previous_starts_at: initial.starts_at,
+      starts_at: moved.starts_at,
+      specialist_name: "Anna Santos",
+    },
+  };
+  const cancelled: Notice = {
+    ...notice,
+    id: "cancelled",
+    key: "notify.cancelled",
+    params: { starts_at: moved.starts_at, specialist_name: "Anna Santos" },
+  };
+  const requests = signedApi(
+    () => {
+      if (stage === "reschedule") return updateResponse.promise;
+      const items = stage === "cancel" ? [] : [initial];
+      return schedule([], 0, null, {
+        attended: items,
+        attended_total: items.length,
+        specialists_count: 1,
+      });
+    },
+    accountFor(false),
+    () => json({ items: stage === "initial" ? [] : stage === "cancel" ? [cancelled] : [notice] }),
+  );
+  render(at("/app/meetings", <Meetings />));
+
+  const old = await screen.findByRole("button", { name: /Anna Santos/u });
+  expect(old.closest("[data-feed-day]")?.getAttribute("data-feed-day")).toBe(today);
+  stage = "reschedule";
+  act(() => window.dispatchEvent(new Event("focus")));
+  await waitFor(() => expect(scheduleRanges(requests)).toHaveLength(2));
+  expect(requests.slice(-2).map(({ url }) => new URL(url).pathname)).toEqual([
+    "/api/v1/notices",
+    "/api/v1/meetings",
+  ]);
+  expect(screen.queryByText(/Session rescheduled/u)).toBeNull();
+  expect(old.isConnected).toBe(true);
+
+  await act(async () => {
+    updateResponse.resolve(
+      schedule([], 0, null, { attended: [moved], attended_total: 1, specialists_count: 1 }),
+    );
+  });
+  expect(
+    screen.getByText(/Session rescheduled: from 16 November, 14:00 .* to 17 November, 16:00/u),
+  ).toBeDefined();
+  expect(
+    screen
+      .getByRole("button", { name: /Anna Santos/u })
+      .closest("[data-feed-day]")
+      ?.getAttribute("data-feed-day"),
+  ).toBe("2026-11-17");
+  expect(old.isConnected).toBe(false);
+
+  stage = "cancel";
+  act(() => window.dispatchEvent(new Event("focus")));
+  expect(
+    await screen.findByText(/Session on 17 November, 16:00 .* has been cancelled/u),
+  ).toBeDefined();
+  expect(screen.queryByRole("button", { name: /Anna Santos/u })).toBeNull();
+  expect(screen.getByText(t("c.no_bookings"))).toBeDefined();
+});
+
+test("refreshes the open mini-calendar's marked days after an attended meeting moves", async () => {
+  let date = today;
+  const requests = signedApi((_request, url) => {
+    if (url.pathname.endsWith("/calendar")) {
+      return json({
+        month: "2026-11",
+        days: [date],
+      } satisfies Schemas["MeetingCalendarMonth"]);
+    }
+    return schedule();
+  }, accountFor(false));
+  render(at("/app/meetings", <Meetings />));
+  fireEvent.click(await screen.findByRole("button", { name: t("meetings.today") }));
+  const dialog = within(await screen.findByRole("dialog", { name: t("extra.schedule_calendar") }));
+  const marked = await dialog.findByRole("button", { name: /16 November 2026, Sessions/u });
+
+  date = "2026-11-17";
+  act(() => window.dispatchEvent(new Event("focus")));
+  const moved = await dialog.findByRole("button", { name: /17 November 2026, Sessions/u });
+  expect(marked.querySelector(".schedule-calendar-dot")).toBeNull();
+  expect(moved.querySelector(".schedule-calendar-dot")).not.toBeNull();
+  expect(
+    requests.filter(({ url }) => url.endsWith("/meetings/calendar?month=2026-11")),
+  ).toHaveLength(2);
+
+  fireEvent.click(dialog.getByRole("button", { name: t("extra.close") }));
+  await act(async () => {
+    window.dispatchEvent(new Event("focus"));
+  });
+  expect(
+    requests.filter(({ url }) => url.endsWith("/meetings/calendar?month=2026-11")),
+  ).toHaveLength(2);
 });

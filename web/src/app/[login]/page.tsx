@@ -8,21 +8,20 @@ import {
   PublicNotFound,
 } from "@/components/booking/BookingScreen";
 import { emptyBookingDraft, useBookingSession } from "@/components/booking/BookingSession";
-import { bookingDaysAhead, DateStrip } from "@/components/booking/DateStrip";
+import { BookingSlotPicker } from "@/components/booking/BookingSlotPicker";
+import { bookingDaysAhead } from "@/components/booking/DateStrip";
 import { LeaderAbout, LeaderHeader } from "@/components/booking/LeaderHeader";
 import { MainContactButton } from "@/components/booking/MainContactButton";
-import { SlotGrid } from "@/components/booking/SlotGrid";
-import { ZoneLabel } from "@/components/booking/ZoneLabel";
 import { bookingFormatLabels } from "@/components/booking/booking-display";
 import { publicBookingPath } from "@/components/booking/booking-paths";
 import { usePublicSlots, usePublicSpecialist } from "@/components/booking/public-resource";
 import { Sheet } from "@/components/shell/Sheet";
 import type { Schemas } from "@/lib/api/client";
 import { deviceTimeZone } from "@/lib/device";
-import { formatDate, formatMoney } from "@/lib/format";
+import { formatMoney } from "@/lib/format";
 import { useLanguage, useTranslation } from "@/lib/i18n";
 import { useCurrentInstant } from "@/lib/schedule-view";
-import { civilDate, shiftCivilDay, zonedDay, zonedInstant } from "@/lib/zoned-date";
+import { shiftCivilDay, zonedDay } from "@/lib/zoned-date";
 
 function PublicSpecialist({
   specialist,
@@ -45,10 +44,7 @@ function PublicSpecialist({
   const slots = usePublicSlots(specialist.login, day, timeZone);
   const result = slots.result;
   const data = result?.kind === "ready" ? result.data : null;
-  const nextDate = data?.next_free_date;
-  const next = nextDate && nextDate > day && nextDate <= end ? nextDate : null;
   const unavailable = data?.has_available_slots === false;
-  const referenceTime = data?.items[0]?.starts_at ?? zonedInstant(day, "12:00", timeZone);
   const amount = specialist.price ? formatMoney(specialist.price, language) : null;
   const stale = state.draft.startsAt !== null && !matches;
 
@@ -104,49 +100,17 @@ function PublicSpecialist({
         {unavailable && <p className="booking-hint">{t("public.no_slots_all")}</p>}
       </section>
       {!unavailable && (
-        <section className="booking-card booking-picker">
-          <DateStrip
-            today={today}
-            selected={day}
-            onPick={(picked) => {
-              if (picked === day) slots.retry();
-              else setPreferredDay(picked);
-            }}
-          />
-          <ZoneLabel timeZone={timeZone} at={referenceTime ? new Date(referenceTime) : now} />
-          {data ? (
-            data.items.length ? (
-              <SlotGrid slots={data} timeZone={timeZone} onPick={chooseSlot} />
-            ) : (
-              <>
-                {/* spec:impl public-booking-page#show-no-slots-day-next-free-button */}
-                <p className="booking-hint">{t("public.no_slots_day")}</p>
-                {next && (
-                  <button
-                    type="button"
-                    className="auth-secondary"
-                    onClick={() => setPreferredDay(next)}
-                  >
-                    {t("public.next_free", {
-                      [language === "ru" ? "дата" : "date"]: formatDate(
-                        civilDate(next).toISOString(),
-                        "UTC",
-                        language,
-                      ),
-                    })}
-                  </button>
-                )}
-              </>
-            )
-          ) : (
-            <BookingLoadState
-              error={
-                result?.kind === "error" || result?.kind === "offline" ? result.kind : undefined
-              }
-              retry={slots.retry}
-            />
-          )}
-        </section>
+        <BookingSlotPicker
+          today={today}
+          day={day}
+          timeZone={timeZone}
+          now={now}
+          slots={data}
+          error={result?.kind === "error" || result?.kind === "offline" ? result.kind : undefined}
+          onDay={setPreferredDay}
+          onSlot={chooseSlot}
+          retry={slots.retry}
+        />
       )}
       {matches && state.outcome?.kind === "slot_taken" && (
         <Sheet

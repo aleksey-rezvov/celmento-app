@@ -15,7 +15,7 @@ interface BookingFormProps {
   startsAt: string;
   timeZone: string;
   format: Schemas["SessionFormat"];
-  changeTimeHref: string;
+  changeTime: string | (() => void);
   values: BookingFormValues;
   onChange: (values: BookingFormValues) => void;
   onSubmit: (values: BookingFormValues) => Promise<void>;
@@ -76,7 +76,7 @@ export function BookingForm({
   startsAt,
   timeZone,
   format,
-  changeTimeHref,
+  changeTime,
   values,
   onChange,
   onSubmit,
@@ -90,6 +90,7 @@ export function BookingForm({
   const commentHint = useId();
   const guest = mode === "guest";
   // spec:impl guest-booking-flow#ask-payment-booking-require-anything
+  // spec:impl client-app-booking#enable-book-no-format-choice
   const canBook =
     !submitting &&
     (format !== "both" || values.place !== null) &&
@@ -101,15 +102,26 @@ export function BookingForm({
   return (
     <section className="booking-card">
       <header className="booking-selection">
-        <h1>
-          <time dateTime={startsAt}>{details}</time>
-        </h1>
-        {submitting ? (
-          <button className="auth-text-link" type="button" disabled>
+        {guest ? (
+          <h1>
+            <time dateTime={startsAt}>{details}</time>
+          </h1>
+        ) : (
+          <h2>
+            <time dateTime={startsAt}>{details}</time>
+          </h2>
+        )}
+        {submitting || typeof changeTime === "function" ? (
+          <button
+            className="auth-text-link"
+            type="button"
+            onClick={typeof changeTime === "function" ? changeTime : undefined}
+            disabled={submitting}
+          >
             {t("form.change_time")}
           </button>
         ) : (
-          <Link className="auth-text-link" href={changeTimeHref}>
+          <Link className="auth-text-link" href={changeTime}>
             {t("form.change_time")}
           </Link>
         )}
@@ -124,6 +136,7 @@ export function BookingForm({
         }}
       >
         <fieldset className="booking-form-fields" disabled={submitting}>
+          {/* spec:impl client-app-booking#ask-no-name-email-contact */}
           {guest && (
             <>
               {/* spec:impl guest-booking-flow#ask-name-required-field-name-hint */}

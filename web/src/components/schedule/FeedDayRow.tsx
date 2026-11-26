@@ -2,21 +2,22 @@
 
 import { Fragment, type ReactElement } from "react";
 import { EmptyState } from "@/components/shell/EmptyState";
-import type { Schemas } from "@/lib/api/client";
 import { useLanguage } from "@/lib/i18n";
 import { civilDate } from "@/lib/zoned-date";
+import { AttendedBlock } from "./AttendedBlock";
 import { CurrentTimeLine } from "./CurrentTimeLine";
 import { MeetingFeedCard } from "./MeetingFeedCard";
-import { endOfMeeting } from "./schedule-data";
+import { endOfMeeting, scheduleItemKey, type ScheduleItem } from "./schedule-data";
 
 interface FeedDayRowProps {
   day: string;
   today: boolean;
-  meetings: Schemas["Meeting"][];
+  meetings: ScheduleItem[];
   now: Date;
   timeZone: string;
   onPickDay: (day: string) => void;
   onOpen: (id: string) => void;
+  onOpenAttended: (id: string) => void;
 }
 
 export function FeedDayRow({
@@ -27,6 +28,7 @@ export function FeedDayRow({
   timeZone,
   onPickDay,
   onOpen,
+  onOpenAttended,
 }: FeedDayRowProps): ReactElement {
   const language = useLanguage();
   const locale = language === "ru" ? "ru-RU" : "en-GB";
@@ -38,7 +40,7 @@ export function FeedDayRow({
     date,
   );
   const firstUpcoming = meetings.findIndex(
-    (meeting) => endOfMeeting(meeting).getTime() > now.getTime(),
+    ({ meeting }) => endOfMeeting(meeting).getTime() > now.getTime(),
   );
   const line =
     today && meetings.length > 0 ? <CurrentTimeLine instant={now} timeZone={timeZone} /> : null;
@@ -58,14 +60,26 @@ export function FeedDayRow({
         <span className="schedule-feed-number">{Number(day.slice(8))}</span>
       </button>
       <div className="schedule-feed-cards">
+        {/* spec:impl schedule-feed-view#show-today-row-even-today */}
         {meetings.length === 0 ? (
           <EmptyState character="meetings_today_empty" textKey="meetings.today_empty" />
         ) : (
-          meetings.map((meeting, index) => (
-            <Fragment key={meeting.id}>
+          meetings.map((item, index) => (
+            <Fragment key={scheduleItemKey(item)}>
               {/* spec:impl schedule-feed-view#draw-current-time-line-inside-today */}
               {index === firstUpcoming && line}
-              <MeetingFeedCard meeting={meeting} timeZone={timeZone} onOpen={onOpen} />
+              {/* spec:impl schedule-feed-view#open-meeting-card-person-meeting */}
+              {item.kind === "attended" ? (
+                <AttendedBlock
+                  meeting={item.meeting}
+                  timeZone={timeZone}
+                  now={now}
+                  onOpen={onOpenAttended}
+                  feed
+                />
+              ) : (
+                <MeetingFeedCard meeting={item.meeting} timeZone={timeZone} onOpen={onOpen} />
+              )}
             </Fragment>
           ))
         )}

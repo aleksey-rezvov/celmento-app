@@ -3,7 +3,7 @@ import type { ComponentPropsWithoutRef, ReactElement } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { NoticeBar } from "@/components/NoticeBar";
 import { useNavigationGuard } from "@/components/shell/navigation";
-import { useAccount } from "@/lib/account";
+import { AccountProvider, useAccount } from "@/lib/account";
 import type { Schemas } from "@/lib/api/client";
 import { t } from "@/lib/i18n";
 import { getSessionToken, setSessionToken } from "@/lib/session";
@@ -132,6 +132,8 @@ function signIn(account: Account, notices: Notice[] = []): Request[] {
           attended_total: 0,
           specialists_count: 0,
         } satisfies Schemas["MeetingList"]);
+      case "/api/v1/specialists":
+        return json({ items: [] } satisfies Schemas["SpecialistList"]);
       case "/api/v1/clients":
         if (account.leader) {
           return json({ items: [], plan: account.leader.plan } satisfies Schemas["ClientList"]);
@@ -387,6 +389,74 @@ test("applies a saved account immediately and keeps its language and zoned date 
   expect(document.documentElement.lang).toBe("ru");
 });
 
+test("switches the protected view to the current session and ignores the previous account response", async () => {
+  setSessionToken(token);
+  const nextToken = "second-session";
+  const before = accountFor();
+  const after = {
+    ...accountFor(false, "ru", "Europe/Moscow"),
+    id: "019ac7a0-0000-7ab1-b031-222222222222",
+    first_name: "Анна",
+  };
+  const oldResponse = deferred<Response>();
+  const newResponse = deferred<Response>();
+  let oldRequests = 0;
+  const requests = mockApi((request) => {
+    const authorization = request.headers.get("Authorization");
+    if (authorization === `Bearer ${token}`) {
+      return ++oldRequests === 1 ? json(before) : oldResponse.promise;
+    }
+    if (authorization === `Bearer ${nextToken}`) return newResponse.promise;
+    throw new Error("Unexpected session.");
+  });
+  const observeAccount = vi.fn<(state: ReturnType<typeof useAccount>) => void>();
+  function AccountName(): ReactElement {
+    const current = useAccount();
+    observeAccount(current);
+    return <p>{current.account.first_name}</p>;
+  }
+  render(
+    <AccountProvider>
+      <AccountName />
+    </AccountProvider>,
+  );
+
+  await screen.findByText(before.first_name);
+  const previous = observeAccount.mock.lastCall?.[0];
+  if (!previous) throw new Error("Expected the first account to load.");
+  const olderRequest = previous.refresh();
+  const key = "celmento_app_session";
+  await act(async () => {
+    window.localStorage.setItem(key, nextToken);
+    expect(previous.currentSessionToken()).toBeNull();
+    window.dispatchEvent(
+      new StorageEvent("storage", { key, oldValue: token, newValue: nextToken }),
+    );
+  });
+  expect(screen.queryByText(before.first_name)).toBeNull();
+  await act(async () => {
+    await previous.refresh(before);
+    oldResponse.resolve(json(before));
+    await olderRequest;
+    newResponse.resolve(json(after));
+  });
+  await screen.findByText(after.first_name);
+  expect(screen.queryByText(before.first_name)).toBeNull();
+  expect(document.documentElement.lang).toBe("ru");
+  expect(requests.map((request) => request.headers.get("Authorization"))).toEqual([
+    `Bearer ${token}`,
+    `Bearer ${token}`,
+    `Bearer ${nextToken}`,
+  ]);
+
+  await act(async () => {
+    window.localStorage.removeItem(key);
+    window.dispatchEvent(new StorageEvent("storage", { key, oldValue: nextToken, newValue: null }));
+  });
+  expect(screen.queryByText(after.first_name)).toBeNull();
+  expect(navigation.router.replace).toHaveBeenCalledWith("/login");
+});
+
 interface GuardedPageProps {
   confirm: (proceed: () => void) => void;
 }
@@ -540,10 +610,25 @@ test("keeps a notice after a rejected dismissal and removes it after the server 
   setSessionToken(token);
   let dismissals = 0;
   const requests = mockApi((request) => {
-    if (request.url.endsWith("/account")) return json(accountFor(false, "ru"));
-    if (request.url.endsWith("/notices")) return json({ items: dismissals < 2 ? [archived] : [] });
-    if (++dismissals === 1) return json({ code: "internal_error" }, 500);
-    return new Response(null, { status: 204 });
+    const { pathname } = new URL(request.url);
+    if (request.method === "DELETE" && pathname === "/api/v1/notices/archived") {
+      if (++dismissals === 1) return json({ code: "internal_error" }, 500);
+      return new Response(null, { status: 204 });
+    }
+    switch (pathname) {
+      case "/api/v1/account":
+        return json(accountFor(false, "ru"));
+      case "/api/v1/notices":
+        return json({ items: dismissals < 2 ? [archived] : [] } satisfies Schemas["NoticeList"]);
+      case "/api/v1/specialists":
+        return json({ items: [] } satisfies Schemas["SpecialistList"]);
+      case "/api/v1/folders":
+        return json({ items: [] } satisfies Schemas["FolderList"]);
+      case "/api/v1/notes":
+        return json({ items: [], total: 0 } satisfies Schemas["NoteList"]);
+      default:
+        throw new Error(`Unexpected request: ${request.method} ${pathname}`);
+    }
   });
   const view = render(atPath("/app/people", <People />));
   const noticeText = "Майя из архива хотел записаться";

@@ -2078,6 +2078,7 @@ export interface components {
       contact?: string | null;
       comment?: string | null;
       place?: components["schemas"]["MeetingPlace"] | null;
+      expected_session_format?: components["schemas"]["SessionFormat"] | null;
       consents: components["schemas"]["ConsentAcceptance"][];
       language: components["schemas"]["Language"];
       time_zone: components["schemas"]["TimeZone"];
@@ -2133,6 +2134,7 @@ export interface components {
       shared_notes: components["schemas"]["Note"][];
       payment_type: components["schemas"]["PaymentType"];
       upcoming_meetings: components["schemas"]["AttendedMeeting"][];
+      past_meetings: components["schemas"]["AttendedMeeting"][];
     };
     AttendedMeeting: {
       id: string;
@@ -2141,6 +2143,7 @@ export interface components {
       duration_minutes: components["schemas"]["DurationMinutes"];
       place: components["schemas"]["MeetingPlace"];
       meeting_link: string | null;
+      address: string | null;
       price: components["schemas"]["Money"];
       status: components["schemas"]["MeetingStatus"];
       charged: boolean | null;
@@ -2148,8 +2151,9 @@ export interface components {
     };
     AppBookingCreate: {
       specialist_id: string;
-      starts_at: string;
+      starts_at?: string | null;
       place?: components["schemas"]["MeetingPlace"] | null;
+      expected_session_format?: components["schemas"]["SessionFormat"] | null;
       comment?: string | null;
     };
     RecordsPeriodKind: "all" | "year" | "month" | "week" | "custom";
@@ -2749,6 +2753,7 @@ export interface operations {
       };
       401: components["responses"]["Unauthorized"];
       404: components["responses"]["NotFound"];
+      422: components["responses"]["ValidationError"];
       500: components["responses"]["InternalError"];
     };
   };
@@ -2773,6 +2778,7 @@ export interface operations {
       };
       401: components["responses"]["Unauthorized"];
       404: components["responses"]["NotFound"];
+      422: components["responses"]["ValidationError"];
       500: components["responses"]["InternalError"];
     };
   };
@@ -2984,7 +2990,9 @@ export interface operations {
   createAppBooking: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        "Idempotency-Key"?: string;
+      };
       path?: never;
       cookie?: never;
     };
@@ -4609,6 +4617,7 @@ export interface operations {
       };
       401: components["responses"]["Unauthorized"];
       404: components["responses"]["NotFound"];
+      422: components["responses"]["ValidationError"];
       500: components["responses"]["InternalError"];
     };
   };
@@ -4631,6 +4640,7 @@ export interface operations {
       };
       401: components["responses"]["Unauthorized"];
       404: components["responses"]["NotFound"];
+      422: components["responses"]["ValidationError"];
       500: components["responses"]["InternalError"];
     };
   };
@@ -4659,6 +4669,7 @@ export interface operations {
       };
       401: components["responses"]["Unauthorized"];
       404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
       422: components["responses"]["ValidationError"];
       500: components["responses"]["InternalError"];
     };

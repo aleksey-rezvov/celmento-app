@@ -7,9 +7,15 @@ interface SheetProps {
   title: string;
   children: ReactNode;
   onClose: () => void;
+  closeDisabled?: boolean;
 }
 
-export function Sheet({ title, children, onClose }: SheetProps): ReactElement {
+export function Sheet({
+  title,
+  children,
+  onClose,
+  closeDisabled = false,
+}: SheetProps): ReactElement {
   const t = useTranslation();
   const titleId = useId();
   const dialog = useRef<HTMLDialogElement>(null);
@@ -27,7 +33,7 @@ export function Sheet({ title, children, onClose }: SheetProps): ReactElement {
       aria-labelledby={titleId}
       onCancel={(event) => {
         event.preventDefault();
-        onClose();
+        if (!closeDisabled) onClose();
       }}
     >
       <div className="shell-sheet-content">
@@ -37,6 +43,7 @@ export function Sheet({ title, children, onClose }: SheetProps): ReactElement {
             type="button"
             className="shell-icon-button"
             onClick={onClose}
+            disabled={closeDisabled}
             aria-label={t("extra.close")}
           >
             <span aria-hidden="true">×</span>

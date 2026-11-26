@@ -5,7 +5,7 @@ import { Sheet } from "@/components/shell/Sheet";
 import { useAccount } from "@/lib/account";
 import { apiClient } from "@/lib/api/client";
 import { useLanguage, useTranslation } from "@/lib/i18n";
-import { getSessionToken } from "@/lib/session";
+import { subscribeVisibleRevalidation } from "@/lib/visible-revalidation";
 import { civilDate, firstCivilDayOfWeek, shiftCivilDay, shiftCivilMonth } from "@/lib/zoned-date";
 
 interface MiniCalendarProps {
@@ -28,7 +28,7 @@ export function MiniCalendar({
 }: MiniCalendarProps): ReactElement {
   const t = useTranslation();
   const language = useLanguage();
-  const { account } = useAccount();
+  const { account, currentSessionToken } = useAccount();
   const locale = language === "ru" ? "ru-RU" : "en-GB";
   // spec:impl schedule-date-navigation#open-mini-month-calendar-month
   const [month, setMonth] = useState(selected.slice(0, 7));
@@ -36,24 +36,45 @@ export function MiniCalendar({
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    const controller = new AbortController();
-    const { signal } = controller;
-    async function load(): Promise<void> {
+    const session = currentSessionToken();
+    if (!session) return;
+
+    let pending: AbortController | null = null;
+    let loaded = false;
+    async function load(token: string): Promise<void> {
+      if (pending || currentSessionToken() !== token) return;
+
+      const controller = new AbortController();
+      pending = controller;
       try {
-        const { data } = await apiClient(getSessionToken()).GET("/meetings/calendar", {
+        const { data, response } = await apiClient(token).GET("/meetings/calendar", {
           params: { query: { month } },
-          signal,
+          signal: controller.signal,
           cache: "no-store",
         });
-        if (!signal.aborted) setResult({ month, days: data?.days ?? null });
+        if (controller.signal.aborted || currentSessionToken() !== token) return;
+        if (data) {
+          loaded = true;
+          setResult({ month, days: data.days });
+        } else if (!loaded || [401, 403, 404, 422].includes(response.status)) {
+          loaded = false;
+          setResult({ month, days: null });
+        }
       } catch {
-        if (!signal.aborted) setResult({ month, days: null });
+        if (!loaded && !controller.signal.aborted && currentSessionToken() === token)
+          setResult({ month, days: null });
+      } finally {
+        pending = null;
       }
     }
 
-    void load();
-    return () => controller.abort();
-  }, [account.id, account.time_zone, attempt, month]);
+    void load(session);
+    const unsubscribe = subscribeVisibleRevalidation(() => void load(session));
+    return () => {
+      unsubscribe();
+      pending?.abort();
+    };
+  }, [account.id, account.time_zone, attempt, currentSessionToken, month]);
 
   const monthName = new Intl.DateTimeFormat(locale, {
     month: "long",
